@@ -56,11 +56,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s
     case _ =>
       val topClass = get_top_class(provider.nowClass)
-      val instance_found = get_instance(topClass, s)
-      if (instance_found.isDefined) {
+      if (get_instance(topClass, s).isDefined) {
         s"$s(${privateMemberName(IoIdentifier)})?"
       } else {
-        s"$s()"
+        if(get_param(topClass, s).isDefined) {
+          s
+        } else {
+          s"$s()"
+        }
       }
   }
 
