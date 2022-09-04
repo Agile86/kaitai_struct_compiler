@@ -58,6 +58,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     )
     importList.add("std::convert::{TryFrom, TryInto}")
     importList.add("std::cell::{Ref, Cell, RefCell}")
+    importList.add("std::rc::Rc")
 
     typeProvider.allClasses.foreach{
       case (name, _) =>
@@ -71,6 +72,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       s"super::${classSpec.name.last}::${type2class(classSpec.name.last)}"
     )
 
+  var in_param = false
+
   override def classHeader(name: List[String]): Unit = {
     out.puts
     out.puts("#[derive(Default, Debug, PartialEq, Clone)]")
@@ -81,16 +84,25 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // everyone gets a phantom data marker
     //out.puts(s"_phantom: std::marker::PhantomData<&$streamLife ()>,")
 
+    in_param = true
     typeProvider.nowClass.params.foreach { p =>
       // Make sure the parameter is imported if necessary
       p.dataType match {
-        case u: UserType => if (u.isOpaque && u.classSpec.isDefined) opaqueClassDeclaration(u.classSpec.get)
-        case _ => ()
+        case u: UserType => {
+          if (u.isOpaque && u.classSpec.isDefined) opaqueClassDeclaration(u.classSpec.get)
+
+          val typeName = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, isParamType = in_param)
+          val attrName = p.id
+          out.puts(s"${idToStr(attrName)}: $typeName,")
+        }
+        case _ =>
+          attributeDeclaration(p.id, p.dataType, isNullable = false)
       }
 
       // Declare parameters as if they were attributes
-      attributeDeclaration(p.id, p.dataType, isNullable = false)
+      //attributeDeclaration(p.id, p.dataType, isNullable = false)
     }
+    in_param = false
   }
 
   // Intentional no-op; Rust has already ended the struct definition by the time we reach this
@@ -179,9 +191,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
       case IoIdentifier | RootIdentifier | ParentIdentifier => return
       case _ =>
-        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType)
+        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, isParamType = in_param)
     }
-    val typeNameEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = true)
+    val typeNameEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = true, isParamType = in_param)
     out.puts(
       s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
@@ -213,7 +225,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       if (typeName.startsWith("RefCell")) {
         out.puts(s"pub fn $fn(&self) -> Ref<$typeNameEx> {")
       } else {
-        out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
+        if (typeName.startsWith("ParamType")) {
+          out.puts(s"pub fn $fn(&self) -> ${typeNameEx.replace("ParamType", "Rc")} {")
+        } else {
+          out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
+        }
       }
       out.inc
       if (typeName != typeNameEx) {
@@ -223,7 +239,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
         }
       } else {
-        out.puts(s"&self.${idToStr(attrName)}")
+        if (typeName.startsWith("ParamType")) {
+          out.puts(s"self.${idToStr(attrName)}.borrow().clone().unwrap()")
+        } else {
+          out.puts(s"&self.${idToStr(attrName)}")
+        }
       }
     }
     out.dec
@@ -375,12 +395,15 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceDeclHeader(className: List[String]): Unit = {
     if (!typeProvider.nowClass.params.isEmpty) {
+      in_param = true
       val paramsArg = Utils.join(typeProvider.nowClass.params.map{ case p =>
         val n = paramName(p.id)
-        val t = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, excludeOptionWrapper = true)
-        var byref = ""
-        if (!translator.is_copy_type(p.dataType))
-          byref = "&"
+        val t = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, excludeOptionWrapper = true, isParamType = in_param)
+        val byref = p.dataType match {
+          case _: UserType => ""
+          case _ => if (!translator.is_copy_type(p.dataType)) "&" else ""
+        }
+
         // generate param access helper
         attributeReader(p.id, p.dataType, false)
         s"$n: $byref$t"
@@ -395,6 +418,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts("}")
       out.dec
       out.puts("}")
+      in_param = false
     }
     out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
@@ -412,10 +436,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       Some(attrName),
       typeProvider.nowClass,
       attrType,
-      excludeOptionWrapper = true
+      excludeOptionWrapper = true,
+      isParamType = true
     )
     out.puts(s"${calculatedFlagForName(attrName)}: Cell<bool>,")
-    out.puts(s"${idToStr(attrName)}: RefCell<$typeName>,")
+    if (!typeName.startsWith("ParamType"))
+      out.puts(s"${idToStr(attrName)}: RefCell<$typeName>,")
+    else
+      out.puts(s"${idToStr(attrName)}: $typeName,")
   }
 
   def calculatedFlagForName(ksName: Identifier) =
@@ -617,18 +645,23 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     if (paramId.isDefined) {
       need_clone = !translator.is_copy_type(paramId.get.dataType)
     }
-    val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, paramId.get.dataType)
+    val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, paramId.get.dataType, isParamType = true)
     if (typeName.startsWith("RefCell"))
       out.puts(s"${privateMemberName(id)} = RefCell::new($expr.clone());")
     else {
-      paramId.get.dataType match {
-        case et: EnumType =>
-          out.puts(s"${privateMemberName(id)} = Some($expr.clone());")
-        case _ =>
-          if (need_clone)
-            out.puts(s"${privateMemberName(id)} = $expr.clone();")
-          else
-            out.puts(s"${privateMemberName(id)} = $expr;")
+      if (typeName.startsWith("ParamType")) {
+        out.puts(s"let x = $expr.borrow().clone().unwrap();")
+        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(x);")
+      } else {
+        paramId.get.dataType match {
+          case et: EnumType =>
+            out.puts(s"${privateMemberName(id)} = Some($expr.clone());")
+          case _ =>
+            if (need_clone)
+              out.puts(s"${privateMemberName(id)} = $expr.clone();")
+            else
+              out.puts(s"${privateMemberName(id)} = $expr;")
+        }
       }
     }
   }
@@ -694,19 +727,19 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case t: UserType =>
         addParams = Utils.join(t.args.map{ a =>
           val typ = translator.detectType(a)
-          var byref = ""
-          // exclude enums
-          typ match {
-            case _: EnumType =>
-            case _ =>
-              if (!translator.is_copy_type(typ))
-                byref = "&"
+          val byref = typ match {
+            case _: EnumType => ""
+            case _: UserType => ""
+            case _ => if (!translator.is_copy_type(typ)) "&" else ""
           }
-          val t = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ)
-          var need_deref = ""
-          if (t.startsWith("RefCell"))
-            need_deref = "&*"
-          s"$byref$need_deref${translator.translate(a)}"
+          val t = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ, isParamType = true)
+
+          if (t.startsWith("ParamType")) {
+            s"RefCell::new(Some(Rc::new(${t.replace("ParamType<", "").replace(">", "")}::default())))"
+          } else {
+            val need_deref = if (t.startsWith("RefCell")) "&*" else ""
+            s"$byref$need_deref${translator.translate(a)}"
+          }
         }, "", ", ", "")
         val userType = t match {
           case t: UserType =>
@@ -752,13 +785,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         }
         if (addParams.isEmpty) {
           out.puts(s"let t = Self::read_into::<$streamType, $userType>($io$addArgs)?.into();")
+          "t"
         } else {
           //val at = kaitaiTypeToNativeType(None, typeProvider.nowClass, assignType, excludeOptionWrapper = true)
           out.puts(s"let mut t = $userType::default();")
           out.puts(s"t.set_params($addParams);")
-          out.puts(s"t.read::<$streamType>($io$addArgs)?;")
+          out.puts(s"t.read::<$streamType>($io$addArgs, None, None)?;")
+          "Some(Rc::new(t))"
         }
-        return s"t"
       case _ => s"// parseExpr($dataType, $assignType, $io, $defEndian)"
     }
     // in expr_2.ksy we got into rustc bug
@@ -1036,7 +1070,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           typeProvider.nowClass,
           t,
           excludeOptionWrapper = true,
-          excludeLifetime = true,
           excludeBox = true
         )
       case t: EnumType =>
@@ -1185,7 +1218,7 @@ object RustCompiler
                              cs: ClassSpec,
                              attrType: DataType,
                              excludeOptionWrapper: Boolean = false,
-                             excludeLifetime: Boolean = false,
+                             isParamType: Boolean = false,
                              excludeBox: Boolean = false): String =
     attrType match {
       // TODO: Not exhaustive
@@ -1199,13 +1232,16 @@ object RustCompiler
           case Some(spec) => types2class(spec.name)
           case None => types2class(t.name)
         }
-        //val lifetime = if (!excludeLifetime) s"<$streamLife>" else ""
 
-        // Because we can't predict if opaque types will recurse, we have to box them
-        val typeName =
-          if (!excludeBox && t.isOpaque) s"Box<$baseName>"
-          else s"$baseName"
-        if (excludeOptionWrapper) typeName else s"RefCell<$typeName>"
+        if (isParamType) {
+          s"ParamType<$baseName>"
+        } else {
+          // Because we can't predict if opaque types will recurse, we have to box them
+          val typeName =
+            if (!excludeBox && t.isOpaque) s"Box<$baseName>"
+            else s"$baseName"
+          if (excludeOptionWrapper) typeName else s"RefCell<$typeName>"
+        }
 
       case t: EnumType =>
         val typeName = t.enumSpec match {
@@ -1215,14 +1251,9 @@ object RustCompiler
         if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case t: ArrayType =>
-        s"Vec<${kaitaiTypeToNativeType(id, cs, t.elType, excludeOptionWrapper = true, excludeLifetime = excludeLifetime)}>"
+        s"Vec<${kaitaiTypeToNativeType(id, cs, t.elType, excludeOptionWrapper = true)}>"
 
       case _: SwitchType =>
-        // val types = st.cases.values.toSet
-        // val lifetime =
-        //   if (!excludeLifetime && types.exists(containsReferences))
-        //     s"<$streamLife>"
-        //   else ""
         val typeName = id.get match {
           case name: NamedIdentifier =>
             s"${types2class(cs.name ::: List(name.name))}"
