@@ -7,7 +7,7 @@ import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.exprlang.Ast.expr
 import io.kaitai.struct.format.{Identifier, IoIdentifier, ParentIdentifier, RootIdentifier}
 import io.kaitai.struct.languages.RustCompiler
-import io.kaitai.struct.{RuntimeConfig, Utils}
+import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig, Utils}
 
 class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   extends BaseTranslator(provider) {
@@ -67,7 +67,20 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      val topClass = get_top_class(provider.nowClass)
+      val topClass = findMember(s) match {
+        case Some(ms) =>
+          ms match {
+            case vi: ValueInstanceSpec =>
+              return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
+            case _ => ms.dataTypeComposite match {
+              case ut: CalcUserType => ut.classSpec.get
+              case _ => get_top_class(provider.nowClass)
+            }
+            case _ => get_top_class(provider.nowClass)
+          }
+        case _ => get_top_class(provider.nowClass)
+      }
+
       if (get_instance(topClass, s).isDefined) {
         s"$s(${privateMemberName(IoIdentifier)})?"
       } else {
@@ -77,6 +90,32 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           s"$s()"
         }
       }
+  }
+
+  def findMember(attrName: String): Option[MemberSpec] = {
+    def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
+      inClass.seq.foreach { el =>
+        if (el.id == NamedIdentifier(attrName))
+          return Some(el)
+      }
+      inClass.params.foreach { el =>
+        if (el.id == NamedIdentifier(attrName))
+          return Some(el)
+      }
+      inClass.instances.get(InstanceIdentifier(attrName))
+    }
+
+    val ms = findInClass(provider.nowClass)
+    if (ms.isDefined)
+      return ms
+
+    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+      val ms = findInClass(cls._2)
+      if (ms.isDefined)
+        return ms
+    }
+
+    None
   }
 
   def get_top_class(c: ClassSpec): ClassSpec = {
