@@ -493,9 +493,13 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       Some(instName),
       typeProvider.nowClass,
       dataType,
-      excludeOptionWrapper = true
+      excludeOptionWrapper = true,
+      isParamType = true
     )
-    out.puts(s") -> KResult<Ref<$typeName>> {")
+    if (typeName.startsWith("ParamType"))
+      out.puts(s") -> KResult<${typeName.replace("ParamType", "Rc")}> {")
+    else
+      out.puts(s") -> KResult<Ref<$typeName>> {")
     out.inc
     out.puts(s"let _root : Option<&${classTypeName(typeProvider.topClass)}> = None;")
   }
@@ -504,7 +508,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                            dataType: DataType): Unit = {
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
-    out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
+    dataType match {
+      case _: UserTypeInstream => out.puts(s"return Ok(${privateMemberName(instName)}.borrow().clone().unwrap());")
+      case _ => out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
+    }
     out.dec
     out.puts("}")
   }
@@ -533,7 +540,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
-    out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
+    attrType match {
+      case _: UserTypeInstream => out.puts(s"Ok(${privateMemberName(instName)}.borrow().clone().unwrap())")
+      case _ => out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
+    }
     in_instance = false
   }
 
