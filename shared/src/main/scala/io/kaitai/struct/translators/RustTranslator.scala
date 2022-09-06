@@ -249,24 +249,32 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   def need_deref(s: String): Boolean = {
-    var deref = false
-    var found = get_attr(get_top_class(provider.nowClass), s)
-    if (found.isDefined ) {
-      deref = is_copy_type(found.get.dataTypeComposite)
-    } else {
-      found = get_instance(get_top_class(provider.nowClass), s)
-      if (found.isDefined) {
-        deref = true //is_copy_type(found.get.dataTypeComposite)
+    def findInClass(inClass: ClassSpec): Option[Boolean] = {
+      val found = get_attr(inClass, s)
+      if (found.isDefined ) {
+        return Some(is_copy_type(found.get.dataTypeComposite))
       } else {
-        found = get_param(get_top_class(provider.nowClass), s)
-        if (found.isDefined) {
-          deref = true
+        if (get_instance(inClass, s).isDefined) {
+          return Some(true)
         } else {
-          deref = false
+          if (get_param(inClass, s).isDefined) {
+            return Some(true)
+          }
         }
       }
+      None
     }
-    deref
+
+    val found = findInClass(get_top_class(provider.nowClass))
+    if(found.isDefined)
+      return found.get
+
+    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+      val found = findInClass(cls._2)
+      if (found.isDefined)
+        return found.get
+    }
+    false
   }
 
   override def doLocalName(s: String): String = s match {
