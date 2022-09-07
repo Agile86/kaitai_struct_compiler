@@ -280,7 +280,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doLocalName(s: String): String = s match {
     case Identifier.ITERATOR => "tmpa"
     case Identifier.ITERATOR2 => "tmpb"
-    case Identifier.INDEX => "i"
+    case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
     case Identifier.ROOT => s"${RustCompiler.privateMemberName(RootIdentifier)}.ok_or(KError::MissingRoot)?"
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
@@ -307,7 +307,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${RustCompiler.types2class(enumTypeAbs)}::${Utils.upperCamelCase(label)}"
 
   override def doStrCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    s"${remove_deref(translate(left))}.as_str() ${cmpOp(op)} ${remove_deref(translate(right))}"
+    s"${ensure_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}.to_string()"
   }
 
   override def doEnumById(enumTypeAbs: List[String], id: String): String =
@@ -354,16 +354,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   // Predefined methods of various types
   override def strConcat(left: Ast.expr, right: Ast.expr): String =
-    "format!(\"{}{}\", " + translate(left) + ", " + translate(right) + ")"
+    s"""format!("{}{}", ${translate(left)}, ${translate(right)})"""
 
   override def strToInt(s: expr, base: expr): String =
     translate(base) match {
       case "10" =>
         s"${translate(s)}.parse::<i32>().unwrap()"
       case _ =>
-        "panic!(\"Converting from string to int in base {} is unimplemented\"" + translate(
-          base
-        ) + ")"
+        s"i32::from_str_radix(${translate(s)}, ${translate(base)}).unwrap()"
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
