@@ -71,7 +71,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case Some(ms) =>
           ms match {
             case vi: ValueInstanceSpec =>
-              return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
+              vi.value match {
+                case Ast.expr.Bool(_) | Ast.expr.IntNum(_) =>
+                  return s"$s(${privateMemberName(IoIdentifier)})?"
+                case _ =>
+                  return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
+              }
             case _ => ms.dataTypeComposite match {
               case ut: CalcUserType => ut.classSpec.get
               case _ => get_top_class(provider.nowClass)
