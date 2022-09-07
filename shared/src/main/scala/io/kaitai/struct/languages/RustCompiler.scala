@@ -509,8 +509,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
     dataType match {
-      case _: UserTypeInstream => out.puts(s"return Ok(${privateMemberName(instName)}.borrow().clone().unwrap());")
-      case _ => out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
+      case UserTypeInstream(_, _, _) | CalcUserTypeFromBytes(_, _, _, _, _) =>
+        out.puts(s"return Ok(${privateMemberName(instName)}.borrow().clone().unwrap());")
+      case _ =>
+        out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
     }
     out.dec
     out.puts("}")
@@ -521,7 +523,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def instanceCalculate(instName: Identifier, dataType: DataType, value: Ast.expr): Unit = {
     dataType match {
       case _: UserType =>
-        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.clone();")
+        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
       case _: StrType =>
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.to_string();")
       case _: BytesType =>
@@ -541,8 +543,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
     attrType match {
-      case _: UserTypeInstream => out.puts(s"Ok(${privateMemberName(instName)}.borrow().clone().unwrap())")
-      case _ => out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
+      case UserTypeInstream(_, _, _) | CalcUserTypeFromBytes(_, _, _, _, _) =>
+        out.puts(s"Ok(${privateMemberName(instName)}.borrow().clone().unwrap())")
+      case _ =>
+        out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
     }
     in_instance = false
   }
@@ -751,14 +755,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"$byref$need_deref${translator.translate(a)}"
           }
         }, "", ", ", "")
-        val userType = t match {
-          case t: UserType =>
-            val baseName = t.classSpec match {
-              case Some(spec) => types2class(spec.name)
-              case None => types2class(t.name)
-            }
-            s"$baseName"
+
+        val userType = t.classSpec match {
+          case Some(spec) => types2class(spec.name)
+          case None => types2class(t.name)
         }
+
         val addArgs = if (t.isOpaque) {
           ""
         } else {
@@ -794,16 +796,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           "BytesReader"
         }
         if (addParams.isEmpty) {
-          out.puts(s"let t = Self::read_into::<$streamType, $userType>($io$addArgs)?.into();")
-          "t"
+          out.puts(s"let t = Self::read_into::<$streamType, $userType>($io$addArgs)?;")
         } else {
           //val at = kaitaiTypeToNativeType(None, typeProvider.nowClass, assignType, excludeOptionWrapper = true)
           out.puts(s"let mut t = $userType::default();")
           out.puts(s"t.set_params($addParams);")
           out.puts(s"t.read::<$streamType>($io$addArgs, None, None)?;")
-          "Some(Rc::new(t))"
         }
-      case _ => s"// parseExpr($dataType, $assignType, $io, $defEndian)"
+        "Some(Rc::new(t))"
+      case _ =>
+        s"// parseExpr($dataType, $assignType, $io, $defEndian)"
     }
     // in expr_2.ksy we got into rustc bug
     // https://github.com/rust-lang/rust/issues/82656
