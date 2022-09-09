@@ -77,6 +77,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 case _ =>
                   return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
               }
+            case as: AttrSpec if as.dataTypeComposite.isInstanceOf[IntType] =>
+              return s"$s()"
             case _ => ms.dataTypeComposite match {
               case ut: CalcUserType => ut.classSpec.get
               case _ => get_top_class(provider.nowClass)
@@ -103,11 +105,23 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         if (el.id == NamedIdentifier(attrName))
           return Some(el)
       }
+
       inClass.params.foreach { el =>
         if (el.id == NamedIdentifier(attrName))
           return Some(el)
       }
-      inClass.instances.get(InstanceIdentifier(attrName))
+
+      val inst = inClass.instances.get(InstanceIdentifier(attrName))
+      if (inst.isDefined)
+        return inst
+
+      inClass.types.foreach{ t =>
+        val found = findInClass(t._2)
+        if (found.isDefined)
+          return found
+      }
+
+      None
     }
 
     val ms = findInClass(provider.nowClass)
