@@ -285,6 +285,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                    dataType: DataType): Unit = {
     out.puts("{")
     out.inc
+    out.puts(s"let mut _i = 0;")
     out.puts(s"while !_io.is_eof() {")
     out.inc
   }
@@ -294,6 +295,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def condRepeatEosFooter: Unit = {
+    out.puts("_i += 1;")
     out.dec
     out.puts("}")
     out.dec
@@ -314,24 +316,28 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                      io: String,
                                      dataType: DataType,
                                      repeatExpr: Ast.expr): Unit = {
-    // TODO: Actual implementation, this is a shim to enable compiling
     out.puts("{")
     out.inc
-
-    out.puts(
-      s"// condRepeatUntilHeader($id, $io, $dataType, $repeatExpr)"
-    )
+    out.puts("let mut _i = 0;")
+    out.puts("while {")
+    out.inc
   }
+
+  override def handleAssignmentRepeatUntil(id: Identifier,
+                                           expr: String,
+                                           isRaw: Boolean): Unit =
+    out.puts(s"${privateMemberName(id)}.push($expr);")
 
   override def condRepeatUntilFooter(id: Identifier,
                                      io: String,
                                      dataType: DataType,
                                      repeatExpr: Ast.expr): Unit = {
-    out.puts(
-      s"// condRepeatUntilFooter($id, $io, $dataType, $repeatExpr)"
-    )
+    out.puts("_i += 1;")
+    out.puts(s"!(${expression(repeatExpr)})")
     out.dec
     out.puts("} {}")
+    out.dec
+    out.puts("}")
   }
 
   def getRawIdExpr(varName: Identifier, rep: RepeatSpec): String = {
@@ -648,11 +654,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def handleAssignmentRepeatExpr(id: Identifier, expr: String): Unit =
     handleAssignmentRepeatEos(id, expr)
 
-  override def handleAssignmentRepeatUntil(id: Identifier,
-                                           expr: String,
-                                           isRaw: Boolean): Unit =
-    out.puts(s"// handleAssignmentRepeatUntil($id, $expr, $isRaw)")
-
   def handleAssignmentParams(id: Identifier, expr: String): Unit = {
     val paramId = typeProvider.nowClass.params.find(s => s.id == id)
     var need_clone = false
@@ -762,7 +763,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         }
 
         val addArgs = if (t.isOpaque) {
-          ""
+          ", None, None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
           val root = if (typeProvider.nowClass.isTopLevel) {
@@ -796,14 +797,18 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           "BytesReader"
         }
         if (addParams.isEmpty) {
-          out.puts(s"let t = Self::read_into::<$streamType, $userType>($io$addArgs)?;")
+          out.puts(s"let t = Self::read_into::<$streamType, $userType>($io$addArgs)?.into();")
         } else {
           //val at = kaitaiTypeToNativeType(None, typeProvider.nowClass, assignType, excludeOptionWrapper = true)
           out.puts(s"let mut t = $userType::default();")
           out.puts(s"t.set_params($addParams);")
-          out.puts(s"t.read::<$streamType>($io$addArgs, None, None)?;")
+          out.puts(s"t.read::<$streamType>($io$addArgs)?;")
         }
-        "Some(Rc::new(t))"
+        if(in_instance) {
+          "Some(Rc::new(t))"
+        } else {
+          "t"
+        }
       case _ =>
         s"// parseExpr($dataType, $assignType, $io, $defEndian)"
     }
