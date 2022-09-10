@@ -747,13 +747,17 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             case _: UserType => ""
             case _ => if (!translator.is_copy_type(typ)) "&" else ""
           }
-          val t = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ, isParamType = true)
+          val nt = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ, isParamType = true)
 
-          if (t.startsWith("ParamType")) {
-            s"RefCell::new(Some(Rc::new(${t.replace("ParamType<", "").replace(">", "")}::default())))"
+          if (nt.startsWith("ParamType")) {
+            s"RefCell::new(Some(Rc::new(${nt.replace("ParamType<", "").replace(">", "")}::default())))"
           } else {
-            val need_deref = if (t.startsWith("RefCell")) "&*" else ""
-            s"$byref$need_deref${translator.translate(a)}"
+            if (nt.startsWith("Vec<")) {
+              s"$byref(${translator.translate(a)}).to_vec()"
+            } else {
+              val need_deref = if (nt.startsWith("RefCell")) "&*" else ""
+              s"$byref$need_deref${translator.translate(a)}"
+            }
           }
         }, "", ", ", "")
 
