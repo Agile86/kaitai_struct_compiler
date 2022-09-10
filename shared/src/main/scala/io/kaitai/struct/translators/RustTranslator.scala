@@ -277,7 +277,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           return Some(true)
         } else {
           if (get_param(inClass, s).isDefined) {
-            return Some(true)
+            return Some(false)
           }
         }
       }
