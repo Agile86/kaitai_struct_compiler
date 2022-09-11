@@ -255,7 +255,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     found
   }
 
-  var context_need_deref_attr = false
+//  var context_need_deref_attr = false
 
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
@@ -306,16 +306,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ =>
       val n = doName(s)
       val deref = need_deref(s)
-      if (context_need_deref_attr || deref) {
+      if (/*context_need_deref_attr ||*/ deref) {
         s"*self.$n"
       } else {
         s"self.$n"
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    context_need_deref_attr = true
-    val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
-    context_need_deref_attr = false
+    //context_need_deref_attr = true
+    val code = s"${translate(left)}.as_ref().unwrap() ${cmpOp(op)} &${translate(right)}"
+    //context_need_deref_attr = false
     code
   }
 
