@@ -539,10 +539,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _: EnumType =>
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))};")
       case _ =>
-        //translator.context_need_deref_attr = true
         val primType = kaitaiPrimitiveToNativeType(dataType)
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = (${expression(value)}) as $primType;")
-        //translator.context_need_deref_attr = false
     }
   }
 
@@ -756,7 +754,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               s"$byref(${translator.translate(a)}).to_vec()"
             } else {
               val need_deref = if (nt.startsWith("RefCell")) "&*" else ""
-              val into = if(a.asInstanceOf[Ast.expr.Name].id.name == "_index") ".try_into().unwrap()" else ""
+              val into = if(a.asInstanceOf[Ast.expr.Name].id.name == Identifier.INDEX) ".try_into().unwrap()" else ""
               s"$byref$need_deref${translator.translate(a)}$into"
             }
           }
