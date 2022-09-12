@@ -74,6 +74,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               vi.value match {
                 case Ast.expr.Bool(_) | Ast.expr.IntNum(_) =>
                   return s"$s(${privateMemberName(IoIdentifier)})?"
+                case Ast.expr.List(_) =>
+                  return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()).to_vec()"
                 case _ =>
                   return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
               }
@@ -199,6 +201,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
+  def remove_ref(s: String): String = {
+    if (s.charAt(0) == '&') {
+      s.substring(1)
+    } else {
+      s
+    }
+  }
+
   def remove_deref(s: String): String = {
     if (s.charAt(0) == '*') {
       s.substring(1)
@@ -255,8 +265,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     found
   }
 
-//  var context_need_deref_attr = false
-
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
     case _: UserType => false
@@ -273,8 +281,23 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (found.isDefined ) {
         return Some(is_copy_type(found.get.dataTypeComposite))
       } else {
-        if (get_instance(inClass, s).isDefined) {
-          return Some(true)
+        val inst = get_instance(inClass, s)
+        if (inst.isDefined) {
+          inst.get match {
+            case vi: ValueInstanceSpec =>
+              vi.value match {
+                case _: Ast.expr.IntNum |
+                     _: Ast.expr.FloatNum |
+                     _: Ast.expr.Str  =>
+                  return Some(false)
+                case Ast.expr.UnaryOp(_, Ast.expr.IntNum(_) | Ast.expr.FloatNum(_)) =>
+                  return Some(false)
+                case _ =>
+                  return Some(true)
+              }
+            case _ =>
+              return Some(true)
+          }
         } else {
           if (get_param(inClass, s).isDefined) {
             return Some(false)
@@ -305,17 +328,19 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)
-      val deref = need_deref(s)
-      if (/*context_need_deref_attr ||*/ deref) {
-        s"*self.$n"
+      val deref = need_deref(s) || n.endsWith("(_io)?")
+      if (deref) {
+        if(n.endsWith(".to_vec()")) {
+          s"&(*self.$n"
+        } else {
+          s"*self.$n"
+        }
       } else {
         s"self.$n"
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    //context_need_deref_attr = true
     val code = s"${translate(left)}.as_ref().unwrap() ${cmpOp(op)} &${translate(right)}"
-    //context_need_deref_attr = false
     code
   }
 
@@ -332,8 +357,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doEnumById(enumTypeAbs: List[String], id: String): String =
     s"($id as i64).try_into()?"
 
-  override def arraySubscript(container: expr, idx: expr): String =
-    s"${remove_deref(translate(container))}[${translate(idx)} as usize]"
+  override def arraySubscript(container: expr, idx: expr): String = {
+    s"${remove_ref(remove_deref(translate(container)))}[${translate(idx)} as usize]"
+  }
 
   override def doIfExp(condition: expr, ifTrue: expr, ifFalse: expr): String = {
     var to_type = ""
@@ -424,11 +450,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${translate(s)}[${translate(from)}..${translate(to)}]"
 
   override def arrayFirst(a: expr): String =
-    s"${ensure_deref(translate(a))}.first().ok_or(KError::EmptyIterator)?"
+    s"*(${remove_ref(ensure_deref(translate(a)))}).first().ok_or(KError::EmptyIterator)?"
   override def arrayLast(a: expr): String =
-    s"${ensure_deref(translate(a))}.last().ok_or(KError::EmptyIterator)?"
+    s"*(${remove_ref(ensure_deref(translate(a)))}).last().ok_or(KError::EmptyIterator)?"
   override def arraySize(a: expr): String =
-    s"${remove_deref(translate(a))}.len()"
+    s"(${remove_deref(translate(a))}).len()"
 
   def is_float_type(a: Ast.expr): Boolean = {
     detectType(a) match {
@@ -449,17 +475,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def arrayMin(a: Ast.expr): String = {
     if (is_float_type(a)) {
-      s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+      s"**${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-      s"${ensure_deref(translate(a))}.iter().min().ok_or(KError::EmptyIterator)?"
+      s"**${ensure_deref(translate(a))}.iter().min().ok_or(KError::EmptyIterator)?"
     }
   }
 
   override def arrayMax(a: Ast.expr): String = {
     if (is_float_type(a)) {
-      s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+      s"**${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-      s"${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
+      s"**${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
     }
   }
 }
