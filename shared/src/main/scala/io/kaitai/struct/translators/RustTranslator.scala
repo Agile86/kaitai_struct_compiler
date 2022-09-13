@@ -67,27 +67,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      val topClass = findMember(s) match {
+      val member = findMember(s);
+      val topClass = member match {
         case Some(ms) =>
-          ms match {
-            case vi: ValueInstanceSpec =>
-              vi.value match {
-                case Ast.expr.Bool(_) | Ast.expr.IntNum(_) =>
-                  return s"$s(${privateMemberName(IoIdentifier)})?"
-                case Ast.expr.List(_) =>
-                  return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()).to_vec()"
-                case _ =>
-                  return s"$s(${privateMemberName(IoIdentifier)})?.to_owned()"
-              }
-            case as: AttrSpec if as.dataTypeComposite.isInstanceOf[IntType] =>
-              return s"$s()"
-            case _ => ms.dataTypeComposite match {
-              case ut: CalcUserType => ut.classSpec.get
-              case _ => get_top_class(provider.nowClass)
-            }
+          ms.dataTypeComposite match {
+            case ut: CalcUserType => ut.classSpec.get
             case _ => get_top_class(provider.nowClass)
           }
-        case _ => get_top_class(provider.nowClass)
+        case _ =>
+          get_top_class(provider.nowClass)
       }
 
       if (get_instance(topClass, s).isDefined) {
@@ -268,6 +256,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
     case _: UserType => false
+    case _: BytesLimitType => true
     case _: BytesType => false
     case _: ArrayType => false
     case _: StrType => false
@@ -330,17 +319,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       val n = doName(s)
       val deref = need_deref(s) || n.endsWith("(_io)?")
       if (deref) {
-        if(n.endsWith(".to_vec()")) {
-          s"&(*self.$n"
-        } else {
           s"*self.$n"
-        }
       } else {
         s"self.$n"
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    val code = s"${translate(left)}.as_ref().unwrap() ${cmpOp(op)} &${translate(right)}"
+	val code = s"${translate(left)} ${cmpOp(op)} &${translate(right)}"
     code
   }
 
@@ -358,7 +343,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"($id as i64).try_into()?"
 
   override def arraySubscript(container: expr, idx: expr): String = {
-    s"${remove_ref(remove_deref(translate(container)))}[${translate(idx)} as usize]"
+	s"${remove_deref(translate(container))}[${translate(idx)} as usize]"
   }
 
   override def doIfExp(condition: expr, ifTrue: expr, ifFalse: expr): String = {
@@ -450,11 +435,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${translate(s)}[${translate(from)}..${translate(to)}]"
 
   override def arrayFirst(a: expr): String =
-    s"*(${remove_ref(ensure_deref(translate(a)))}).first().ok_or(KError::EmptyIterator)?"
+	s"${ensure_deref(translate(a))}.first().ok_or(KError::EmptyIterator)?"
   override def arrayLast(a: expr): String =
-    s"*(${remove_ref(ensure_deref(translate(a)))}).last().ok_or(KError::EmptyIterator)?"
+    s"${ensure_deref(translate(a))}.last().ok_or(KError::EmptyIterator)?"
   override def arraySize(a: expr): String =
-    s"(${remove_deref(translate(a))}).len()"
+	s"${remove_deref(translate(a))}.len()"
 
   def is_float_type(a: Ast.expr): Boolean = {
     detectType(a) match {
@@ -475,17 +460,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def arrayMin(a: Ast.expr): String = {
     if (is_float_type(a)) {
-      s"**${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+		s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-      s"**${ensure_deref(translate(a))}.iter().min().ok_or(KError::EmptyIterator)?"
+		s"${ensure_deref(translate(a))}.iter().min().ok_or(KError::EmptyIterator)?"
     }
   }
 
   override def arrayMax(a: Ast.expr): String = {
     if (is_float_type(a)) {
-      s"**${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+      s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-      s"**${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
+      s"${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
     }
   }
 }
