@@ -4,6 +4,7 @@ import io.kaitai.struct._
 import io.kaitai.struct.datatype.DataType.{ReadableType, _}
 import io.kaitai.struct.datatype._
 import io.kaitai.struct.exprlang.Ast
+import io.kaitai.struct.exprlang.Ast.expr.Compare
 import io.kaitai.struct.format._
 import io.kaitai.struct.languages.components._
 import io.kaitai.struct.translators.RustTranslator
@@ -1113,7 +1114,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     errArgs: List[Ast.expr]
   ): Unit = {
     val errArgsStr = errArgs.map(translator.translate).mkString(", ")
-    out.puts(s"if !(${expression(checkExpr)}) {")
+    var expr = expression(checkExpr)
+    checkExpr match {
+      case Compare(_, _, right) =>
+        right match {
+          case Ast.expr.List(_) =>
+            expr = translator.remove_deref(expr)
+          case _ =>
+        }
+    }
+    out.puts(s"if !($expr) {")
     out.inc
     out.puts(s"""return Err(KError::ValidationNotEqual(r#"$errArgsStr"#.to_string()));""")
     out.dec
