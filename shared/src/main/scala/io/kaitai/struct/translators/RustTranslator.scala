@@ -67,10 +67,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
+      var isInstance = false;
       val member = findMember(s);
       val topClass = member match {
-        case Some(ms) =>
-          ms.dataTypeComposite match {
+        case Some(ms) if ms.isInstanceOf[ValueInstanceSpec] =>
+          isInstance = true
+          get_top_class(provider.nowClass)
+        case Some(ms) => ms.dataTypeComposite match {
             case ut: CalcUserType => ut.classSpec.get
             case _ => get_top_class(provider.nowClass)
           }
@@ -78,14 +81,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           get_top_class(provider.nowClass)
       }
 
-      if (get_instance(topClass, s).isDefined) {
+      if (isInstance || get_instance(topClass, s).isDefined) {
         s"$s(${privateMemberName(IoIdentifier)})?"
       } else {
-        if(get_param(topClass, s).isDefined) {
-          s
-        } else {
-          s"$s()"
-        }
+        s"$s()"
       }
   }
 
@@ -256,7 +255,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
     case _: UserType => false
-    case _: BytesLimitType => true
+    //case _: BytesLimitType => true
     case _: BytesType => false
     case _: ArrayType => false
     case _: StrType => false
@@ -289,7 +288,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           }
         } else {
           if (get_param(inClass, s).isDefined) {
-            return Some(false)
+            return Some(true)
           }
         }
       }
@@ -325,7 +324,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-	val code = s"${translate(left)} ${cmpOp(op)} &${translate(right)}"
+	val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
     code
   }
 
@@ -395,7 +394,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
-    s"i64::from(${remove_deref(translate(v))})"
+    s"i64::from(${translate(v)})"
 
   override def boolToInt(v: expr): String =
     s"(${translate(v)}) as i32"
