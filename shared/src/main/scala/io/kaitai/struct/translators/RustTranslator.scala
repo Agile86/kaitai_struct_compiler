@@ -157,19 +157,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
     val a = doName(attrName)
-    var r = ""
-    if (need_deref(attrName)) {
-      if (t.charAt(0) == '*') {
-        r = s"$t.$a"
-      } else {
-        r = s"*$t.$a"
-      }
-    } else {
-      if (t.charAt(0) == '*') {
-        r = s"${t.substring(1)}.$a"
-      } else {
-        r = s"$t.$a"
-      }
+    var r = need_deref(attrName) match {
+      case RefKind.Deref => s"${ensure_deref(t, forSelfOnly = false)}.$a"
+      case RefKind.NoDeref => s"${remove_deref(t)}.$a"
+      case RefKind.ToOwned => s"${remove_deref(t)}.$a.to_owned()"
     }
     attrName match {
       case Identifier.PARENT =>
@@ -204,9 +195,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
-  def ensure_deref(s: String): String = {
-    if (s.startsWith("self")) {
-      s"*$s"
+  def ensure_deref(s: String, forSelfOnly: Boolean = true): String = {
+    if (!forSelfOnly || s.startsWith("self")) {
+      if (!s.startsWith("*"))
+        s"*$s"
+      else
+        s
     } else {
       s
     }
@@ -255,7 +249,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
     case _: UserType => false
-    //case _: BytesLimitType => true
     case _: BytesType => false
     case _: ArrayType => false
     case _: StrType => false
@@ -263,32 +256,55 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ => true
   }
 
-  def need_deref(s: String): Boolean = {
-    def findInClass(inClass: ClassSpec): Option[Boolean] = {
+  object RefKind extends Enumeration {
+    val NoDeref, Deref, ToOwned, Refer = Value
+  }
+
+  def need_deref(s: String): RefKind.Value = {
+    def findInClass(inClass: ClassSpec): Option[RefKind.Value] = {
       val found = get_attr(inClass, s)
       if (found.isDefined ) {
-        return Some(is_copy_type(found.get.dataTypeComposite))
+        return Some(
+          if (is_copy_type(found.get.dataTypeComposite)) RefKind.Deref else RefKind.NoDeref
+        )
       } else {
         val inst = get_instance(inClass, s)
         if (inst.isDefined) {
           inst.get match {
-            case vi: ValueInstanceSpec =>
-              vi.value match {
+            case ValueInstanceSpec(_, _, _, value, _, dataTypeOpt) =>
+              dataTypeOpt match {
+                case Some(dataType) =>
+                  dataType match {
+                    //case CalcIntType | CalcFloatType | CalcStrType | CalcBooleanType | DataType.IntMultiType =>
+                    case _: DataType.NumericType =>
+                      return Some(RefKind.ToOwned)
+                    case _: DataType.StrType =>
+                      return Some(RefKind.ToOwned)
+                    case CalcStrType | CalcBooleanType =>
+                      return Some(RefKind.ToOwned)
+                    case _: BytesType =>
+                      return Some(RefKind.Refer)
+                    case _ =>
+                  }
+                case _ =>
+              }
+              value match {
                 case _: Ast.expr.IntNum |
                      _: Ast.expr.FloatNum |
+                     _: Ast.expr.EnumById |
                      _: Ast.expr.Str  =>
-                  return Some(false)
+                  return Some(RefKind.ToOwned)
                 case Ast.expr.UnaryOp(_, Ast.expr.IntNum(_) | Ast.expr.FloatNum(_)) =>
-                  return Some(false)
+                  return Some(RefKind.NoDeref)
                 case _ =>
-                  return Some(true)
+                  return Some(RefKind.Deref)
               }
             case _ =>
-              return Some(true)
+              return Some(RefKind.Deref)
           }
         } else {
           if (get_param(inClass, s).isDefined) {
-            return Some(true)
+            return Some(RefKind.Deref)
           }
         }
       }
@@ -304,7 +320,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (found.isDefined)
         return found.get
     }
-    false
+    RefKind.NoDeref
   }
 
   override def doLocalName(s: String): String = s match {
@@ -316,12 +332,18 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)
-      val deref = need_deref(s) || n.endsWith("(_io)?")
-      if (deref) {
+      val refKind = need_deref(s)
+      val deref = refKind == RefKind.Deref || n.endsWith("(_io)?")
+      val code =
+        if (deref) {
           s"*self.$n"
-      } else {
-        s"self.$n"
-      }
+        } else {
+          s"self.$n"
+        }
+      if (refKind == RefKind.Refer)
+        s"&$code"
+      else
+        code
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
 	val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
@@ -342,7 +364,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"($id as i64).try_into()?"
 
   override def arraySubscript(container: expr, idx: expr): String = {
-	s"${remove_deref(translate(container))}[${translate(idx)} as usize]"
+	  s"${remove_deref(remove_ref(translate(container)))}[${translate(idx)} as usize]"
   }
 
   override def doIfExp(condition: expr, ifTrue: expr, ifFalse: expr): String = {
@@ -420,7 +442,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def bytesLength(b: Ast.expr): String =
-    s"${remove_deref(translate(b))}.len()"
+    s"${remove_deref(remove_ref(translate(b)))}.len()"
   override def strLength(s: expr): String =
     s"${remove_deref(translate(s))}.len()"
   override def strReverse(s: expr): String = {
@@ -434,11 +456,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${translate(s)}[${translate(from)}..${translate(to)}]"
 
   override def arrayFirst(a: expr): String =
-	s"${ensure_deref(translate(a))}.first().ok_or(KError::EmptyIterator)?"
+	  s"${ensure_deref(remove_ref(translate(a)))}.first().ok_or(KError::EmptyIterator)?"
   override def arrayLast(a: expr): String =
-    s"${ensure_deref(translate(a))}.last().ok_or(KError::EmptyIterator)?"
+    s"${ensure_deref(remove_ref(translate(a)))}.last().ok_or(KError::EmptyIterator)?"
   override def arraySize(a: expr): String =
-	s"${remove_deref(translate(a))}.len()"
+	  s"${remove_deref(translate(a))}.len()"
 
   def is_float_type(a: Ast.expr): Boolean = {
     detectType(a) match {
@@ -459,17 +481,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def arrayMin(a: Ast.expr): String = {
     if (is_float_type(a)) {
-		s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+		s"${ensure_deref(remove_ref(translate(a)))}.iter().reduce(|a, b| if (a.min(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-		s"${ensure_deref(translate(a))}.iter().min().ok_or(KError::EmptyIterator)?"
+		s"${ensure_deref(remove_ref(translate(a)))}.iter().min().ok_or(KError::EmptyIterator)?"
     }
   }
 
   override def arrayMax(a: Ast.expr): String = {
     if (is_float_type(a)) {
-      s"${ensure_deref(translate(a))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
+      s"${ensure_deref(remove_ref(translate(a)))}.iter().reduce(|a, b| if (a.max(*b)) == *b {b} else {a}).ok_or(KError::EmptyIterator)?"
     } else {
-      s"${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
+      s"${ensure_deref(remove_ref(translate(a)))}.iter().max().ok_or(KError::EmptyIterator)?"
     }
   }
 }
