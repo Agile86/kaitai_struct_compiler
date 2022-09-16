@@ -516,7 +516,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
     dataType match {
-      case UserTypeInstream(_, _, _) | CalcUserTypeFromBytes(_, _, _, _, _) =>
+      case _: UserType =>
         out.puts(s"return Ok(${privateMemberName(instName)}.borrow().clone().unwrap());")
       case _ =>
         out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
@@ -530,7 +530,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def instanceCalculate(instName: Identifier, dataType: DataType, value: Ast.expr): Unit = {
     dataType match {
       case _: UserType =>
-        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
+        if (in_instance) {
+          out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
+        } else {
+          out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
+        }
       case _: StrType =>
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.to_string();")
       case _: BytesType =>
@@ -548,7 +552,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
     attrType match {
-      case UserTypeInstream(_, _, _) | CalcUserTypeFromBytes(_, _, _, _, _) =>
+      case _: UserType =>
         out.puts(s"Ok(${privateMemberName(instName)}.borrow().clone().unwrap())")
       case _ =>
         out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
@@ -1122,6 +1126,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             expr = translator.remove_deref(expr)
           case _ =>
         }
+      case _ =>
     }
     out.puts(s"if !($expr) {")
     out.inc
