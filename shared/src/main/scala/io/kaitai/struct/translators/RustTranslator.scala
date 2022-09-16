@@ -161,6 +161,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case RefKind.Deref => s"${ensure_deref(t, forSelfOnly = false)}.$a"
       case RefKind.NoDeref => s"${remove_deref(t)}.$a"
       case RefKind.ToOwned => s"${remove_deref(t)}.$a.to_owned()"
+      case RefKind.Refer => s"${ensure_ref(t)}.$a"
     }
     attrName match {
       case Identifier.PARENT =>
@@ -184,6 +185,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s.substring(1)
     } else {
       s
+    }
+  }
+
+  def ensure_ref(s: String): String = {
+    if (s.charAt(0) == '&') {
+      s
+    } else {
+      s"&$s"
     }
   }
 
