@@ -527,9 +527,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceCalculate(instName: Identifier, dataType: DataType, value: Ast.expr): Unit = {
     dataType match {
-      case _: UserType =>
+      case ut: UserType =>
         if (translator.context_need_deref_attr) {
-          out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
+          ut match {
+            case _: CalcUserTypeFromBytes =>
+              out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
+            case _ =>
+              out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
+          }
         } else {
           out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
         }
