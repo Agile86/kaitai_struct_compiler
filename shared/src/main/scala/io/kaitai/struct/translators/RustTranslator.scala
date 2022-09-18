@@ -162,6 +162,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case RefKind.NoDeref => s"${remove_deref(t)}.$a"
       case RefKind.ToOwned => s"${remove_deref(t)}.$a.to_owned()"
       case RefKind.Refer => s"${ensure_ref(t)}.$a"
+      case RefKind.DerefWithClone => s"${ensure_deref(t)}.$a.clone()"
     }
     attrName match {
       case Identifier.PARENT =>
@@ -268,7 +269,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   var context_need_deref_attr = false
 
   object RefKind extends Enumeration {
-    val NoDeref, Deref, ToOwned, Refer = Value
+    val NoDeref, Deref, DerefWithClone, ToOwned, Refer = Value
   }
 
   def need_deref(s: String): RefKind.Value = {
@@ -276,7 +277,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       val found = get_attr(inClass, s)
       if (found.isDefined ) {
         return Some(
-          if (is_copy_type(found.get.dataTypeComposite)) RefKind.Deref else RefKind.NoDeref
+          found.get.dataTypeComposite match {
+            case _: EnumType => RefKind.DerefWithClone
+            case t: Any => if (is_copy_type(t)) {
+              RefKind.Deref
+            } else {
+              RefKind.NoDeref
+            }
+          }
         )
       } else {
         val inst = get_instance(inClass, s)
@@ -344,17 +352,18 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ =>
       val n = doName(s)
       val refKind = need_deref(s)
-      val deref = refKind == RefKind.Deref || n.endsWith("(_io)?") || context_need_deref_attr
-      val code =
-        if (deref) {
+      refKind match {
+        case RefKind.Deref =>
           s"*self.$n"
-        } else {
+        case RefKind.NoDeref =>
           s"self.$n"
-        }
-      if (refKind == RefKind.Refer)
-        s"&$code"
-      else
-        code
+        case RefKind.DerefWithClone =>
+          s"(*self.$n).clone()"
+        case RefKind.Refer =>
+          s"&self.$n"
+        case RefKind.ToOwned =>
+          s"self.$n.to_owned()"
+      }
   }
 
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
