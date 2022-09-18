@@ -490,7 +490,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                               instName: InstanceIdentifier,
                               dataType: DataType,
                               isNullable: Boolean): Unit = {
-    in_instance = true
+    translator.context_need_deref_attr = true
     out.puts(s"pub fn ${idToStr(instName)}<S: $kstreamName>(")
     out.inc
     out.puts("&self,")
@@ -525,12 +525,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts("}")
   }
 
-  var in_instance = false
-
   override def instanceCalculate(instName: Identifier, dataType: DataType, value: Ast.expr): Unit = {
     dataType match {
       case _: UserType =>
-        if (in_instance) {
+        if (translator.context_need_deref_attr) {
           out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
         } else {
           out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
@@ -557,7 +555,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _ =>
         out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
     }
-    in_instance = false
+    translator.context_need_deref_attr = false
   }
 
   override def enumDeclaration(curClass: List[String],
@@ -759,7 +757,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               s"$byref(${translator.translate(a)}).to_vec()"
             } else {
               val need_deref = if (nt.startsWith("RefCell")) "&*" else ""
-              val into = if(a.asInstanceOf[Ast.expr.Name].id.name == Identifier.INDEX) ".try_into().unwrap()" else ""
+              val into = a match {
+                case n: Ast.expr.Name => if (n.id.name  == Identifier.INDEX) ".try_into().unwrap()" else ""
+                case _ => ""
+              }
               s"$byref$need_deref${translator.translate(a)}$into"
             }
           }
@@ -783,10 +784,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             case Some(USER_TYPE_NO_PARENT) => "None"
             case Some(fp) => translator.translate(fp)
             case None =>
-              if ((userType contains currentType) && !in_instance) {
+              if ((userType contains currentType) && !translator.context_need_deref_attr) {
                 s"Some(${privateMemberName(ParentIdentifier)}.unwrap().push(self))"
               } else {
-                if(in_instance) {
+                if(translator.context_need_deref_attr) {
                   s"None"
                 } else {
                   s"${privateMemberName(ParentIdentifier)}"
@@ -812,7 +813,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"t.set_params($addParams);")
           out.puts(s"t.read::<$streamType>($io$addArgs)?;")
         }
-        if(in_instance) {
+        if(translator.context_need_deref_attr) {
           "Some(Rc::new(t))"
         } else {
           "t"
