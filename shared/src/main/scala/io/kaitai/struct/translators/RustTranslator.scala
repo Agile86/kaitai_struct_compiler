@@ -265,6 +265,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ => true
   }
 
+  var context_need_deref_attr = false
+
   object RefKind extends Enumeration {
     val NoDeref, Deref, ToOwned, Refer = Value
   }
@@ -292,7 +294,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                     case CalcStrType | CalcBooleanType =>
                       return Some(RefKind.ToOwned)
                     case _: BytesType =>
-                      return Some(RefKind.Refer)
+                      return Some(RefKind.NoDeref)
                     case _ =>
                   }
                 case _ =>
@@ -342,7 +344,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ =>
       val n = doName(s)
       val refKind = need_deref(s)
-      val deref = refKind == RefKind.Deref || n.endsWith("(_io)?")
+      val deref = refKind == RefKind.Deref || n.endsWith("(_io)?") || context_need_deref_attr
       val code =
         if (deref) {
           s"*self.$n"
@@ -354,8 +356,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       else
         code
   }
+
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-	val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
+    context_need_deref_attr = true
+	  val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
+    context_need_deref_attr = false
     code
   }
 
