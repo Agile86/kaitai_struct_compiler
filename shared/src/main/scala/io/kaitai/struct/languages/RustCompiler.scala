@@ -614,9 +614,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts("}")
     out.puts
 
-    out.puts(s"impl From<$enumClass> for i64 {")
+    out.puts(s"impl From<&$enumClass> for i64 {")
     out.inc
-    out.puts(s"fn from(val: $enumClass) -> Self {")
+    out.puts(s"fn from(val: &$enumClass) -> Self {")
     out.inc
     out.puts(s"match val {")
     out.inc
