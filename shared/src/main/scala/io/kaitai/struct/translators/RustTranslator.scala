@@ -158,11 +158,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val t = translate(value)
     val a = doName(attrName)
     var r = need_deref(attrName) match {
-      case RefKind.Deref => s"${ensure_deref(t, forSelfOnly = false)}.$a"
-      case RefKind.NoDeref => s"${remove_deref(t)}.$a"
-      case RefKind.ToOwned => s"${remove_deref(t)}.$a.to_owned()"
-      case RefKind.Refer => s"${ensure_ref(t)}.$a"
-      case RefKind.DerefWithClone => s"${ensure_deref(t)}.$a.clone()"
+      case RefKind.Deref =>           s"${ensure_deref(t, forSelfOnly = false)}.$a"
+      case RefKind.NoDeref =>         s"${remove_deref(t)}.$a"
+      case RefKind.ToOwned =>         s"${remove_deref(t)}.$a.to_owned()"
+      case RefKind.Refer =>           s"${ensure_ref(t)}.$a"
+      case RefKind.RefOnDeref =>      s"${ensure_ref(ensure_deref(t))}.$a"
+      case RefKind.DerefWithClone =>  s"${ensure_deref(t)}.$a.clone()"
     }
     attrName match {
       case Identifier.PARENT =>
@@ -269,7 +270,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   var context_need_deref_attr = false
 
   object RefKind extends Enumeration {
-    val NoDeref, Deref, DerefWithClone, ToOwned, Refer = Value
+    val NoDeref, Deref, DerefWithClone, ToOwned, Refer, RefOnDeref = Value
   }
 
   def need_deref(s: String): RefKind.Value = {
@@ -278,7 +279,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (found.isDefined ) {
         return Some(
           found.get.dataTypeComposite match {
-            case _: EnumType => RefKind.DerefWithClone
+            case _: EnumType =>
+              RefKind.NoDeref //RefKind.DerefWithClone
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -294,15 +296,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               dataTypeOpt match {
                 case Some(dataType) =>
                   dataType match {
-                    //case CalcIntType | CalcFloatType | CalcStrType | CalcBooleanType | DataType.IntMultiType =>
                     case _: DataType.NumericType =>
                       return Some(RefKind.ToOwned)
-                    case _: DataType.StrType =>
-                      return Some(RefKind.ToOwned)
-                    case CalcStrType | CalcBooleanType =>
+                    case _: DataType.EnumType =>
+                      return Some(RefKind.Deref)
+                    case CalcBooleanType =>
                       return Some(RefKind.ToOwned)
                     case _: BytesType =>
-                      return Some(RefKind.NoDeref)
+                      return Some(RefKind.RefOnDeref)
                     case _ =>
                   }
                 case _ =>
@@ -353,16 +354,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       val n = doName(s)
       val refKind = need_deref(s)
       refKind match {
-        case RefKind.Deref =>
-          s"*self.$n"
-        case RefKind.NoDeref =>
-          s"self.$n"
-        case RefKind.DerefWithClone =>
-          s"(*self.$n).clone()"
-        case RefKind.Refer =>
-          s"&self.$n"
-        case RefKind.ToOwned =>
-          s"self.$n.to_owned()"
+        case RefKind.Deref =>           s"*self.$n"
+        case RefKind.NoDeref =>         s"self.$n"
+        case RefKind.DerefWithClone =>  s"(*self.$n).clone()"
+        case RefKind.Refer =>           s"&self.$n"
+        case RefKind.RefOnDeref =>      s"&*self.$n"
+        case RefKind.ToOwned =>         s"self.$n.to_owned()"
       }
   }
 
