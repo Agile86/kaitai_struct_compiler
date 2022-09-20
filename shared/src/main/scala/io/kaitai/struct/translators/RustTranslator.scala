@@ -162,7 +162,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case RefKind.NoDeref =>         s"${remove_deref(t)}.$a"
       case RefKind.ToOwned =>         s"${remove_deref(t)}.$a.to_owned()"
       case RefKind.Refer =>           s"${ensure_ref(t)}.$a"
-      case RefKind.RefOnDeref =>      s"${ensure_ref(ensure_deref(t))}.$a"
+      case RefKind.RefOnDeref =>      s"&*($t.$a)"
       case RefKind.DerefWithClone =>  s"${ensure_deref(t)}.$a.clone()"
     }
     attrName match {
@@ -280,7 +280,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         return Some(
           found.get.dataTypeComposite match {
             case _: EnumType =>
-              RefKind.NoDeref //RefKind.DerefWithClone
+              RefKind.NoDeref
+//            case _: IntType =>
+//              RefKind.NoDeref
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -304,6 +306,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                       return Some(RefKind.ToOwned)
                     case _: BytesType =>
                       return Some(RefKind.RefOnDeref)
+                    case _: StrType =>
+                      return Some(RefKind.ToOwned)
                     case _ =>
                   }
                 case _ =>
@@ -358,14 +362,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case RefKind.NoDeref =>         s"self.$n"
         case RefKind.DerefWithClone =>  s"(*self.$n).clone()"
         case RefKind.Refer =>           s"&self.$n"
-        case RefKind.RefOnDeref =>      s"&*self.$n"
+        case RefKind.RefOnDeref =>      s"&*(self.$n)"
         case RefKind.ToOwned =>         s"self.$n.to_owned()"
       }
   }
 
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
     context_need_deref_attr = true
-	  val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
+	  val code = s"${translate(left)} ${cmpOp(op)} &${translate(right)}"
     context_need_deref_attr = false
     code
   }
