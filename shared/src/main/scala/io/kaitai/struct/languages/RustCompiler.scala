@@ -188,33 +188,18 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def attributeReader(attrName: Identifier,
                                attrType: DataType,
                                isNullable: Boolean): Unit = {
-     val typeName = attrName match {
-      // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
-      case IoIdentifier | RootIdentifier | ParentIdentifier => return
-      case _ =>
-        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, isParamType = in_param)
-    }
-    val typeNameEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = true, isParamType = in_param)
+    // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
+    if (List(IoIdentifier, RootIdentifier, ParentIdentifier).contains(attrName))
+      return
+
+    val (resultType, getEnum, implemetation) = attributeNativeType(attrName, attrType, typeProvider, isParamType = in_param)
+    var fn = idToStr(attrName)
+
     out.puts(
       s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
 
-    var types : Set[DataType] = Set()
-    var enum_typename = false
-    attrType match {
-      case st: SwitchType =>
-        types = st.cases.values.toSet
-        enum_typename = true
-      case _: EnumType => // TODO? enum_typename = true
-      case _ =>
-    }
-    var enum_only_numeric = true
-    types.foreach {
-      case _: NumericType => // leave unchanged
-      case _ => enum_only_numeric = false
-    }
-    var fn = idToStr(attrName)
-    if (enum_typename && enum_only_numeric) {
+    if (getEnum) {
       out.puts(s"pub fn $fn(&self) -> usize {")
       out.inc
       out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap().into()")
@@ -222,31 +207,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts("}")
       fn = s"${fn}_enum"
     }
-    {
-      if (typeName.startsWith("RefCell")) {
-        out.puts(s"pub fn $fn(&self) -> Ref<$typeNameEx> {")
-      } else {
-        if (typeName.startsWith("ParamType")) {
-          out.puts(s"pub fn $fn(&self) -> ${typeNameEx.replace("ParamType", "Rc")} {")
-        } else {
-          out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
-        }
-      }
-      out.inc
-      if (typeName != typeNameEx) {
-        if (typeName.startsWith("RefCell")) {
-          out.puts(s"self.${idToStr(attrName)}.borrow()")
-        } else {
-          out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
-        }
-      } else {
-        if (typeName.startsWith("ParamType")) {
-          out.puts(s"self.${idToStr(attrName)}.borrow().clone().unwrap()")
-        } else {
-          out.puts(s"&self.${idToStr(attrName)}")
-        }
-      }
-    }
+
+    out.puts(s"pub fn $fn(&self) -> $resultType {")
+    out.inc
+    out.puts(implemetation)
     out.dec
     out.puts("}")
     out.dec
@@ -359,6 +323,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"S::process_xor_one(&$srcExpr, ${expression(xorValue)})"
           case _: BytesType =>
             s"S::process_xor_many(&$srcExpr, &${translator.remove_deref(expression(xorValue))})"
+          case _ =>
+            ""
         }
       case ProcessZlib =>
         s"S::process_zlib(&$srcExpr)"
@@ -1111,6 +1077,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           excludeOptionWrapper = true
         )
       case t: ArrayType => s"Arr${switchVariantName(id, t.elType)}"
+      case _ => ???
     }
 
   override def ksErrorName(err: io.kaitai.struct.datatype.KSError): String =
@@ -1158,6 +1125,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               s"$io.read_${inst.apiCall(defEndian)}()?"
             case BitsType(width: Int, _) =>
               s"$io.read_bits_int($width)?"
+            case _ => ???
           }
         handleAssignment(id, expr, rep, isRaw)
       case _ =>
@@ -1306,6 +1274,7 @@ object RustCompiler
         if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case KaitaiStreamType => kstreamName
+      case _ => ???
     }
 
   def kaitaiPrimitiveToNativeType(attrType: DataType): String = attrType match {
@@ -1322,7 +1291,7 @@ object RustCompiler
     case FloatMultiType(Width4, _) => "f32"
     case FloatMultiType(Width8, _) => "f64"
 
-    case BitsType(_,_) => "u64"
+    case BitsType(_, _) => "u64"
 
     case _: BooleanType => "bool"
     case CalcIntType => "i32"
@@ -1332,5 +1301,59 @@ object RustCompiler
     case _: BytesType => "Vec<u8>"
 
     case ArrayTypeInStream(inType) => s"Vec<${kaitaiPrimitiveToNativeType(inType)}>"
+    case _ => ???
+  }
+
+  def attributeNativeType(attrName: Identifier,
+                          attrType: DataType,
+                          typeProvider: ClassTypeProvider,
+                          isParamType: Boolean): (String, Boolean, String) = {
+    val typeName = attrName match {
+      // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
+      case IoIdentifier | RootIdentifier | ParentIdentifier =>
+        return ("", false, "")
+      case _ =>
+        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, isParamType)
+    }
+    val typeNameEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = true, isParamType)
+    var types: Set[DataType] = Set()
+    var enum_typename = false
+    attrType match {
+      case st: SwitchType =>
+        types = st.cases.values.toSet
+        enum_typename = true
+      case _: EnumType => // TODO? enum_typename = true
+      case _ =>
+    }
+    var enum_only_numeric = true
+    types.foreach {
+      case _: NumericType => // leave unchanged
+      case _ => enum_only_numeric = false
+    }
+
+    var getEnum = (enum_typename && enum_only_numeric)
+    val resultType =
+      typeName match {
+        case rc if rc.startsWith("RefCell") => s"Ref<$typeNameEx>"
+        case pt if pt.startsWith("ParamType") => s"""${typeNameEx.replace("ParamType", "Rc")}"""
+        case _ => s"&$typeNameEx"
+      }
+
+    val implemetation =
+      if (typeName != typeNameEx) {
+        if (typeName.startsWith("RefCell")) {
+          s"self.${idToStr(attrName)}.borrow()"
+        } else {
+          s"self.${idToStr(attrName)}.as_ref().unwrap()"
+        }
+      } else {
+        if (typeName.startsWith("ParamType")) {
+          s"self.${idToStr(attrName)}.borrow().clone().unwrap()"
+        } else {
+          s"&self.${idToStr(attrName)}"
+        }
+      }
+
+    (resultType, getEnum, implemetation)
   }
 }
