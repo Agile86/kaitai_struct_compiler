@@ -722,7 +722,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           val nt = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ, isParamType = true)
 
           if (nt.startsWith("ParamType")) {
-            s"RefCell::new(Some(Rc::new(${nt.replace("ParamType<", "").replace(">", "")}::default())))"
+            val name = a match {
+              case Ast.expr.Name(id) => id.name
+              case _ => ???
+            }
+            val expr = s"self.$name.borrow().to_owned()"
+            s"RefCell::new(Some(Box::new($expr)))"
           } else {
             if (nt.startsWith("Vec<")) {
               s"$byref(${translator.translate(a)}).to_vec()"
@@ -1344,7 +1349,7 @@ object RustCompiler
         if (typeName.startsWith("RefCell")) {
           s"self.${idToStr(attrName)}.borrow()"
         } else {
-          s"self.${idToStr(attrName)}.as_ref().unwrap()"
+          s"&self.${idToStr(attrName)}"
         }
       } else {
         if (typeName.startsWith("ParamType")) {

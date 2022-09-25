@@ -67,8 +67,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      var isInstance = false;
-      val member = findMember(s);
+      var isInstance = false
+      val member = findMember(s)
       val topClass = member match {
         case Some(ms) if ms.isInstanceOf[ValueInstanceSpec] =>
           isInstance = true
@@ -152,6 +152,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         }
     }
     found
+  }
+
+  override def userTypeField(userType: UserType, value: Ast.expr, attrName: String): String = {
+    val t = translate(value)
+    val a = doName(attrName)
+    s"$t.borrow().clone().unwrap().$a"
   }
 
   override def anyField(value: expr, attrName: String): String = {
@@ -490,7 +496,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     detectType(a) match {
       case t: CalcArrayType =>
         t.elType match {
-          case f: FloatMultiType => true
+          case _: FloatMultiType => true
           case CalcFloatType => true
           case _ => false
         }
