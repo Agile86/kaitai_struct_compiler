@@ -59,7 +59,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     )
     importList.add("std::convert::{TryFrom, TryInto}")
     importList.add("std::cell::{Ref, Cell, RefCell}")
-    importList.add("std::rc::Rc")
 
     typeProvider.allClasses.foreach{
       case (name, _) =>
@@ -371,15 +370,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       in_param = true
       val paramsArg = Utils.join(typeProvider.nowClass.params.map{ case p =>
         val n = paramName(p.id)
-        val t = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, excludeOptionWrapper = true, isParamType = in_param)
+        val t = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, excludeOptionWrapper = false, isParamType = in_param)
         val byref = p.dataType match {
           case _: UserType => ""
+          case _: EnumType => ""
           case _ => if (!translator.is_copy_type(p.dataType)) "&" else ""
         }
 
         // generate param access helper
         attributeReader(p.id, p.dataType, false)
-        s"$n: $byref$t"
+        s"$n: $byref${t.replaceAll("(ParamType|Option)<([^>]+)>", "&$2")}"
       }, "", ", ", "")
 
       out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
@@ -637,8 +637,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts(s"${privateMemberName(id)} = RefCell::new($expr.clone());")
     else {
       if (typeName.startsWith("ParamType")) {
-        out.puts(s"let x = $expr.borrow().clone().unwrap();")
-        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(x);")
+        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr.clone()));")
       } else {
         paramId.get.dataType match {
           case et: EnumType =>
@@ -726,8 +725,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               case Ast.expr.Name(id) => id.name
               case _ => ???
             }
-            val expr = s"self.$name.borrow().to_owned()"
-            s"RefCell::new(Some(Box::new($expr)))"
+            s"&*self.$name()"
           } else {
             if (nt.startsWith("Vec<")) {
               s"$byref(${translator.translate(a)}).to_vec()"
@@ -1318,7 +1316,7 @@ object RustCompiler
       case IoIdentifier | RootIdentifier | ParentIdentifier =>
         return ("", false, "")
       case _ =>
-        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, isParamType)
+        kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = false, isParamType)
     }
     val typeNameEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType, excludeOptionWrapper = true, isParamType)
     var types: Set[DataType] = Set()
@@ -1349,7 +1347,11 @@ object RustCompiler
         if (typeName.startsWith("RefCell")) {
           s"self.${idToStr(attrName)}.borrow()"
         } else {
-          s"&self.${idToStr(attrName)}"
+          if (typeName.startsWith("Option")) {
+            s"self.${idToStr(attrName)}.as_ref().unwrap()"
+          } else {
+            s"&self.${idToStr(attrName)}"
+          }
         }
       } else {
         if (typeName.startsWith("ParamType")) {
