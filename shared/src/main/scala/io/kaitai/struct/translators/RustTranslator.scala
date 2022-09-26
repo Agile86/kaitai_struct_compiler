@@ -154,12 +154,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     found
   }
 
-  override def userTypeField(userType: UserType, value: Ast.expr, attrName: String): String = {
-    val t = translate(value)
-    val a = doName(attrName)
-    s"$t.borrow().clone().unwrap().$a"
-  }
-
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
     val a = doName(attrName)
@@ -375,7 +369,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
     context_need_deref_attr = true
-	  val code = s"${translate(left)} ${cmpOp(op)} &${translate(right)}"
+	  val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
     context_need_deref_attr = false
     code
   }
