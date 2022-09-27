@@ -452,6 +452,20 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def idToStr(id: Identifier): String = RustCompiler.idToStr(id)
 
+  def resultType(instName: InstanceIdentifier, dataType: DataType): String = {
+    val typeName = kaitaiTypeToNativeType(
+      Some(instName),
+      typeProvider.nowClass,
+      dataType,
+      excludeOptionWrapper = true,
+      isParamType = true
+    )
+    if (typeName.startsWith("ParamType"))
+      typeName
+    else
+      s"Ref<$typeName>"
+  }
+
   override def instanceHeader(className: List[String],
                               instName: InstanceIdentifier,
                               dataType: DataType,
@@ -462,17 +476,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts("&self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S")
     out.dec
-    val typeName = kaitaiTypeToNativeType(
-      Some(instName),
-      typeProvider.nowClass,
-      dataType,
-      excludeOptionWrapper = true,
-      isParamType = true
-    )
-    if (typeName.startsWith("ParamType"))
-      out.puts(s") -> KResult<${typeName.replace("ParamType", "Rc")}> {")
-    else
-      out.puts(s") -> KResult<Ref<$typeName>> {")
+    out.puts(s") -> KResult<${resultType(instName, dataType)}> {")
     out.inc
     out.puts(s"let _root : Option<&${classTypeName(typeProvider.topClass)}> = None;")
   }
@@ -481,12 +485,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                            dataType: DataType): Unit = {
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
-    dataType match {
-      case _: UserType =>
-        out.puts(s"return Ok(${privateMemberName(instName)}.borrow().clone().unwrap());")
-      case _ =>
-        out.puts(s"return Ok(${privateMemberName(instName)}.borrow());")
-    }
+    val suffix = if (resultType(instName, dataType).startsWith("Ref<")) ".borrow()" else ""
+    out.puts(s"return Ok(${privateMemberName(instName)}$suffix);")
     out.dec
     out.puts("}")
   }
@@ -497,7 +497,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         if (translator.context_need_deref_attr) {
           ut match {
             case _: CalcUserTypeFromBytes =>
-              out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Rc::new(${translator.remove_deref(expression(value))}.clone()));")
+              out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Box::new(${translator.remove_deref(expression(value))}.clone()));")
             case _ =>
               out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
           }
@@ -520,12 +520,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
-    attrType match {
-      case _: UserType =>
-        out.puts(s"Ok(${privateMemberName(instName)}.borrow().clone().unwrap())")
-      case _ =>
-        out.puts(s"Ok(${privateMemberName(instName)}.borrow())")
-    }
+    val suffix = if (resultType(instName, attrType).startsWith("Ref<")) ".borrow()" else ""
+    out.puts(s"Ok(${privateMemberName(instName)}$suffix)")
     translator.context_need_deref_attr = false
   }
 
@@ -714,7 +710,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         addParams = Utils.join(t.args.map{ a =>
           val typ = translator.detectType(a)
           val byref = typ match {
-            case _: EnumType => ""
+            case _: EnumType => "&"
             case _: UserType => ""
             case _ => if (!translator.is_copy_type(typ)) "&" else ""
           }
@@ -788,7 +784,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"t.read::<$streamType>($io$addArgs)?;")
         }
         if(translator.context_need_deref_attr) {
-          "Some(Rc::new(t))"
+          "Some(Box::new(t))"
         } else {
           "t"
         }
@@ -1338,7 +1334,7 @@ object RustCompiler
     val resultType =
       typeName match {
         case rc if rc.startsWith("RefCell") => s"Ref<$typeNameEx>"
-        case pt if pt.startsWith("ParamType") => s"""${typeNameEx.replace("ParamType", "Rc")}"""
+        case pt if pt.startsWith("ParamType") => s"$typeNameEx"
         case _ => s"&$typeNameEx"
       }
 
@@ -1354,11 +1350,7 @@ object RustCompiler
           }
         }
       } else {
-        if (typeName.startsWith("ParamType")) {
-          s"self.${idToStr(attrName)}.borrow().clone().unwrap()"
-        } else {
-          s"&self.${idToStr(attrName)}"
-        }
+        s"&self.${idToStr(attrName)}"
       }
 
     (resultType, getEnum, implemetation)
