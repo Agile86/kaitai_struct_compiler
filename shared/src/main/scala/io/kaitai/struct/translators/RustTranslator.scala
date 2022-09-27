@@ -280,9 +280,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         return Some(
           found.get.dataTypeComposite match {
             case _: EnumType =>
-              RefKind.NoDeref
-//            case _: IntType =>
-//              RefKind.NoDeref
+              RefKind.Deref
+            case StrFromBytesType(_, _) =>
+              RefKind.Deref
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -307,7 +307,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                     case _: BytesType =>
                       return Some(RefKind.RefOnDeref)
                     case _: StrType =>
-                      return Some(RefKind.ToOwned)
+                      return Some(RefKind.Deref)
                     case _ =>
                   }
                 case _ =>
@@ -440,7 +440,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
-    s"i64::from(${translate(v)})"
+    s"i64::from(&${translate(v)})"
 
   override def boolToInt(v: expr): String =
     s"(${translate(v)}) as i32"
