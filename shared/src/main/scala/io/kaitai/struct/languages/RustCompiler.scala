@@ -460,8 +460,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       excludeOptionWrapper = true,
       isParamType = true
     )
-    if (typeName.startsWith("ParamType"))
-      typeName
+    if (typeName.contains("ParamType<"))
+      s"&$typeName"
     else
       s"Ref<$typeName>"
   }
@@ -485,8 +485,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                            dataType: DataType): Unit = {
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
-    val suffix = if (resultType(instName, dataType).startsWith("Ref<")) ".borrow()" else ""
-    out.puts(s"return Ok(${privateMemberName(instName)}$suffix);")
+    val rt = resultType(instName, dataType)
+    val byref = if (rt.contains("ParamType<")) "&" else ""
+    val suffix = if (rt.startsWith("Ref<")) ".borrow()" else ""
+    out.puts(s"return Ok($byref${privateMemberName(instName)}$suffix);")
     out.dec
     out.puts("}")
   }
@@ -520,8 +522,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
-    val suffix = if (resultType(instName, attrType).startsWith("Ref<")) ".borrow()" else ""
-    out.puts(s"Ok(${privateMemberName(instName)}$suffix)")
+    val rt = resultType(instName, attrType)
+    val byref = if (rt.contains("ParamType<")) "&" else ""
+    val suffix = if (rt.startsWith("Ref<")) ".borrow()" else ""
+    out.puts(s"Ok($byref${privateMemberName(instName)}$suffix)")
     translator.context_need_deref_attr = false
   }
 
@@ -718,10 +722,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
           if (nt.startsWith("ParamType")) {
             val name = a match {
-              case Ast.expr.Name(id) => id.name
-              case _ => ???
+              case Ast.expr.Name(id) =>
+                translator.doLocalName(id.name)
+              case _ =>
+                ???
             }
-            s"&*self.$name()"
+            s"$name"
           } else {
             if (nt.startsWith("Vec<")) {
               s"$byref(${translator.translate(a)}).to_vec()"
@@ -1334,7 +1340,7 @@ object RustCompiler
     val resultType =
       typeName match {
         case rc if rc.startsWith("RefCell") => s"Ref<$typeNameEx>"
-        case pt if pt.startsWith("ParamType") => s"$typeNameEx"
+        case pt if pt.startsWith("ParamType") => s"&$typeNameEx"
         case _ => s"&$typeNameEx"
       }
 
