@@ -164,6 +164,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case RefKind.Refer =>           s"${ensure_ref(t)}.$a"
       case RefKind.RefOnDeref =>      s"&*($t.$a)"
       case RefKind.DerefWithClone =>  s"${ensure_deref(t)}.$a.clone()"
+      case RefKind.GetParam =>        s"&*$t.borrow().as_ref().unwrap().$a"
     }
     attrName match {
       case Identifier.PARENT =>
@@ -270,7 +271,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   var context_need_deref_attr = false
 
   object RefKind extends Enumeration {
-    val NoDeref, Deref, DerefWithClone, ToOwned, Refer, RefOnDeref = Value
+    val NoDeref, Deref, DerefWithClone, ToOwned, Refer, RefOnDeref, GetParam = Value
   }
 
   def need_deref(s: String): RefKind.Value = {
@@ -328,18 +329,19 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           }
         } else {
           if (get_param(inClass, s).isDefined) {
-            return Some(RefKind.Deref)
+            return Some(RefKind.GetParam)
           }
         }
       }
       None
     }
 
-    val found = findInClass(get_top_class(provider.nowClass))
+    val topClass = get_top_class(provider.nowClass)
+    val found = findInClass(topClass)
     if(found.isDefined)
       return found.get
 
-    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+    provider.asInstanceOf[ClassTypeProvider].allClasses.filter((cls) => cls._2 != topClass).foreach { cls =>
       val found = findInClass(cls._2)
       if (found.isDefined)
         return found.get
@@ -364,6 +366,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case RefKind.Refer =>           s"&self.$n"
         case RefKind.RefOnDeref =>      s"&*(self.$n)"
         case RefKind.ToOwned =>         s"self.$n.to_owned()"
+        case RefKind.GetParam =>        s"self.$n.borrow().as_ref().unwrap()"
       }
   }
 
