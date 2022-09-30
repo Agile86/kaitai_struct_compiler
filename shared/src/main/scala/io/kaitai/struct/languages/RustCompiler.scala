@@ -727,7 +727,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               case _ =>
                 ???
             }
-            s"$name"
+            if(name.contains("KError::MissingRoot")) {
+              // enum_to_i_class_border_1/2 workaround
+              val pattern = "ParamType<([^>]+)>".r
+              val name = pattern.findAllIn(nt).group(1)
+              s"&$name::default()"
+            } else {
+              s"$name"
+            }
           } else {
             if (nt.startsWith("Vec<")) {
               s"$byref(${translator.translate(a)}).to_vec()"
