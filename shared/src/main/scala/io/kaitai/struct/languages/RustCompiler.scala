@@ -471,23 +471,32 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                               dataType: DataType,
                               isNullable: Boolean): Unit = {
     translator.context_need_deref_attr = true
+    val rt = resultType(instName, dataType)
+    //val mutSelf = if (rt.startsWith("&ParamType")) "mut " else ""
+    val mutSelf = "mut "
+
     out.puts(s"pub fn ${idToStr(instName)}<S: $kstreamName>(")
     out.inc
-    out.puts("&self,")
+    out.puts(s"&${mutSelf}self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S")
     out.dec
-    out.puts(s") -> KResult<${resultType(instName, dataType)}> {")
+    out.puts(s") -> KResult<$rt> {")
     out.inc
     out.puts(s"let _root : Option<&${classTypeName(typeProvider.topClass)}> = None;")
+  }
+
+  def instanceAttrs(instName: InstanceIdentifier, dataType: DataType): (String, String)  = {
+    val rt = resultType(instName, dataType)
+    val byref = if (rt.contains("ParamType<")) "&" else ""
+    val suffix = if (rt.startsWith("Ref<")) ".borrow()" else ""
+    (byref, suffix)
   }
 
   override def instanceCheckCacheAndReturn(instName: InstanceIdentifier,
                                            dataType: DataType): Unit = {
     out.puts(s"if self.${calculatedFlagForName(instName)}.get() {")
     out.inc
-    val rt = resultType(instName, dataType)
-    val byref = if (rt.contains("ParamType<")) "&" else ""
-    val suffix = if (rt.startsWith("Ref<")) ".borrow()" else ""
+    val (byref, suffix) = instanceAttrs(instName, dataType)
     out.puts(s"return Ok($byref${privateMemberName(instName)}$suffix);")
     out.dec
     out.puts("}")
@@ -499,7 +508,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         if (translator.context_need_deref_attr) {
           ut match {
             case _: CalcUserTypeFromBytes =>
-              out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (Box::new(${translator.remove_deref(expression(value))}.clone()));")
+              val (_, suffix) = instanceAttrs(InstanceIdentifier(idToStr(instName)), dataType)
+              out.puts(s"*${privateMemberName(instName)}$suffix = ${translator.remove_deref(expression(value))}.clone();")
             case _ =>
               out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some (${translator.remove_deref(expression(value))}.clone());")
           }
@@ -522,9 +532,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def instanceReturn(instName: InstanceIdentifier,
                               attrType: DataType): Unit = {
-    val rt = resultType(instName, attrType)
-    val byref = if (rt.contains("ParamType<")) "&" else ""
-    val suffix = if (rt.startsWith("Ref<")) ".borrow()" else ""
+    val (byref, suffix) = instanceAttrs(instName, attrType)
     out.puts(s"Ok($byref${privateMemberName(instName)}$suffix)")
     translator.context_need_deref_attr = false
   }
@@ -637,7 +645,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts(s"${privateMemberName(id)} = RefCell::new($expr.clone());")
     else {
       if (typeName.startsWith("ParamType")) {
-        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr.clone()));")
+        out.puts(s"*${privateMemberName(id)} = $expr.clone();")
       } else {
         paramId.get.dataType match {
           case et: EnumType =>
@@ -683,9 +691,15 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     }
     if (!done) {
       id match {
-        case _: InstanceIdentifier =>
+        case instId: InstanceIdentifier =>
+          val inst = translator.get_instance(typeProvider.nowClass, instId.name)
+          if(inst.isDefined) {
+            val rt = resultType(instId, inst.get.dataTypeComposite)
+            refcell = rt.startsWith("Ref<")
+          }
+          val borrow = if (refcell) ".borrow_mut()" else ""
           done = true
-          out.puts(s"*${privateMemberName(id)}.borrow_mut() = $expr;")
+          out.puts(s"*${privateMemberName(id)}$borrow = $expr;")
         case _ =>
       }
     }
@@ -796,11 +810,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"t.set_params($addParams);")
           out.puts(s"t.read::<$streamType>($io$addArgs)?;")
         }
-        if(translator.context_need_deref_attr) {
-          "Some(Box::new(t))"
-        } else {
-          "t"
-        }
+        ""
       case _ =>
         s"// parseExpr($dataType, $assignType, $io, $defEndian)"
     }
@@ -808,7 +818,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // https://github.com/rust-lang/rust/issues/82656
     // https://github.com/rust-lang/rust/issues/70919
     // workaround:
-    out.puts(s"let t = $expr;")
+    if(!expr.isEmpty)
+      out.puts(s"let t = $expr;")
     s"t"
   }
 
