@@ -284,6 +284,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               RefKind.Deref
             case StrFromBytesType(_, _) =>
               RefKind.Deref
+            case _: UserTypeInstream =>
+              RefKind.Refer
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -366,13 +368,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case RefKind.Refer =>           s"&self.$n"
         case RefKind.RefOnDeref =>      s"&*(self.$n)"
         case RefKind.ToOwned =>         s"self.$n.to_owned()"
-        case RefKind.GetParam =>        s"self.$n.borrow().as_ref().unwrap()"
+        case RefKind.GetParam =>        s"self.$n"
       }
   }
 
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
     context_need_deref_attr = true
-	  val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
+	  val code = s"${translate(left)} ${cmpOp(op)} &${translate(right)}"
     context_need_deref_attr = false
     code
   }
