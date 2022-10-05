@@ -160,9 +160,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     var r = need_deref(attrName) match {
       case RefKind.Deref =>           s"${ensure_deref(t, forSelfOnly = false)}.$a"
       case RefKind.NoDeref =>         s"${remove_deref(t)}.$a"
-      case RefKind.ToOwned =>         s"$t.$a.to_owned()"
+      case RefKind.ToOwned =>         s"($t.$a).to_owned()"
       case RefKind.Refer =>           s"${ensure_ref(t)}.$a"
-      case RefKind.RefOnDeref =>      s"&*($t.$a)"
+      case RefKind.RefOnDeref =>      ensure_ref_deref(s"$t.$a")
       case RefKind.DerefWithClone =>  s"${ensure_deref(t)}.$a.clone()"
     }
     attrName match {
@@ -195,6 +195,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s
     } else {
       s"&$s"
+    }
+  }
+
+  def ensure_ref_deref(s: String): String = {
+    if (s.startsWith("&*")) {
+      s
+    } else {
+      ensure_ref(ensure_deref(s))
     }
   }
 
@@ -284,7 +292,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             case StrFromBytesType(_, _) =>
               RefKind.Deref
             case _: UserTypeInstream =>
-              RefKind.RefOnDeref
+              RefKind.ToOwned
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -365,7 +373,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case RefKind.NoDeref =>         s"self.$n"
         case RefKind.DerefWithClone =>  s"*self.$n.clone()"
         case RefKind.Refer =>           s"&self.$n"
-        case RefKind.RefOnDeref =>      s"&*(self.$n)"
+        case RefKind.RefOnDeref =>      ensure_ref_deref(s"self.$n")
         case RefKind.ToOwned =>         s"self.$n.to_owned()"
       }
   }
