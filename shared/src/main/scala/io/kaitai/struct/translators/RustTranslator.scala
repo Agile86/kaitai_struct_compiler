@@ -372,7 +372,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
     context_need_deref_attr = true
-	  val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
+	  val code = s"${translate(left)} ${cmpOp(op)}  ${translate(right)}"
     context_need_deref_attr = false
     code
   }
