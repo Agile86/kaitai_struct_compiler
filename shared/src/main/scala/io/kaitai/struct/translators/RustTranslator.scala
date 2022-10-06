@@ -156,9 +156,20 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
+    val (prefix, suffix) = value match {
+      case Ast.expr.Name(id) =>
+        val valType = detectType(value)
+        val (res, _, _) = RustCompiler.attributeNativeType(NamedIdentifier(id.name), valType, provider.asInstanceOf[ClassTypeProvider], false)
+        if (res.startsWith("Ref<")) {
+          ("(&mut ", ".to_owned())")
+        }
+      case _ =>
+        ("", "")
+    };
+
     val a = doName(attrName)
     var r = need_deref(attrName) match {
-      case RefKind.Deref =>           s"${ensure_deref(t, forSelfOnly = false)}.$a"
+      case RefKind.Deref =>           s"$prefix${ensure_deref(t, forSelfOnly = false)}$suffix.$a"
       case RefKind.NoDeref =>         s"${remove_deref(t)}.$a"
       case RefKind.ToOwned =>         s"($t.$a).to_owned()"
       case RefKind.Refer =>           s"${ensure_ref(t)}.$a"
@@ -292,7 +303,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             case StrFromBytesType(_, _) =>
               RefKind.Deref
             case _: UserTypeInstream =>
-              RefKind.ToOwned
+              RefKind.Deref
             case t: Any => if (is_copy_type(t)) {
               RefKind.Deref
             } else {
@@ -451,7 +462,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
-    s"i64::from(&${translate(v)})"
+    s"i64::from(&*${translate(v)})"
 
   override def boolToInt(v: expr): String =
     s"(${translate(v)}) as i32"
