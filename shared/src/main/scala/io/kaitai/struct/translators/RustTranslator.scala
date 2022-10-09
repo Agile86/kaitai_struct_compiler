@@ -70,7 +70,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       var isInstance = false
       val member = findMember(s)
       val topClass = member match {
-        case Some(ms) if ms.isInstanceOf[ValueInstanceSpec] =>
+        case Some(ms) if ms.isInstanceOf[ValueInstanceSpec] | ms.isInstanceOf[ParseInstanceSpec] =>
           isInstance = true
           get_top_class(provider.nowClass)
         case Some(ms) => ms.dataTypeComposite match {
