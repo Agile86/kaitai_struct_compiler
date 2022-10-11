@@ -70,10 +70,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       var isInstance = false
       val member = findMember(s)
       val topClass = member match {
-        case Some(ms) if ms.isInstanceOf[ValueInstanceSpec] | ms.isInstanceOf[ParseInstanceSpec] =>
+        case Some((_, ms)) if ms.isInstanceOf[ValueInstanceSpec] | ms.isInstanceOf[ParseInstanceSpec] =>
           isInstance = true
           get_top_class(provider.nowClass)
-        case Some(ms) => ms.dataTypeComposite match {
+        case Some((_, ms)) => ms.dataTypeComposite match {
             case ut: CalcUserType => ut.classSpec.get
             case _ => get_top_class(provider.nowClass)
           }
@@ -88,21 +88,21 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
 
-  def findMember(attrName: String): Option[MemberSpec] = {
-    def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
+  def findMember(attrName: String): Option[(ClassSpec, MemberSpec)] = {
+    def findInClass(inClass: ClassSpec): Option[(ClassSpec, MemberSpec)] = {
       inClass.seq.foreach { el =>
         if (el.id == NamedIdentifier(attrName))
-          return Some(el)
+          return Some((inClass, el))
       }
 
       inClass.params.foreach { el =>
         if (el.id == NamedIdentifier(attrName))
-          return Some(el)
+          return Some((inClass, el))
       }
 
       val inst = inClass.instances.get(InstanceIdentifier(attrName))
       if (inst.isDefined)
-        return inst
+        return Some((inClass, inst.get))
 
       inClass.types.foreach{ t =>
         val found = findInClass(t._2)
@@ -158,10 +158,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val t = translate(value)
     val (prefix, suffix) = value match {
       case Ast.expr.Name(id) =>
-        val valType = detectType(value)
-        val (res, _, _) = RustCompiler.attributeNativeType(NamedIdentifier(id.name), valType, provider.asInstanceOf[ClassTypeProvider], false)
-        if (res.startsWith("Ref<")) {
-          ("(&mut ", ".to_owned())")
+        if (!id.name.startsWith("_")) {
+          val valType = detectType(value)
+          val (res, _, _) = RustCompiler.attributeNativeType(NamedIdentifier(id.name), valType, provider.asInstanceOf[ClassTypeProvider], false)
+          if (res.startsWith("Ref<")) {
+            ("(&mut ", ".to_owned())")
+          }
         }
       case _ =>
         ("", "")
