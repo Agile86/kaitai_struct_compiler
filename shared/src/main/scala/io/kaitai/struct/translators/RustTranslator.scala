@@ -156,18 +156,19 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
-    val (prefix, suffix) = value match {
-      case Ast.expr.Name(id) =>
-        if (!id.name.startsWith("_")) {
-          val valType = detectType(value)
-          val (res, _, _) = RustCompiler.attributeNativeType(NamedIdentifier(id.name), valType, provider.asInstanceOf[ClassTypeProvider], false)
-          if (res.startsWith("Ref<")) {
-            ("(&mut ", ".to_owned())")
-          }
+    val (prefix, suffix) =
+      if (t.matches("^[a-zA-Z]")) {
+        val name = t.substring(0, t.indexOf("."));
+        val valType = detectType(value)
+        val (res, _, _) = RustCompiler.attributeNativeType(NamedIdentifier(name), valType, provider.asInstanceOf[ClassTypeProvider], false)
+        if (res.startsWith("Ref<")) {
+          ("(&mut ", ".to_owned())")
+        } else {
+          ("", "")
         }
-      case _ =>
+      } else {
         ("", "")
-    };
+      };
 
     val a = doName(attrName)
     var r = need_deref(attrName) match {
