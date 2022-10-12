@@ -747,7 +747,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               val name = pattern.findAllIn(nt).group(1)
               s"&$name::default()"
             } else {
-              s"$name"
+              s"&$name"
             }
           } else {
             if (nt.startsWith("Vec<")) {
