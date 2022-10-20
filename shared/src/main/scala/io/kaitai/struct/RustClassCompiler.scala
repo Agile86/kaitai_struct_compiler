@@ -30,7 +30,7 @@ class RustClassCompiler(
 
     // Basic struct declaration
     lang.classHeader(curClass.name)
-    
+
     compileAttrDeclarations(curClass.seq ++ extraAttrs)
     curClass.instances.foreach { case (instName, instSpec) =>
       compileInstanceDeclaration(instName, instSpec)
@@ -50,7 +50,7 @@ class RustClassCompiler(
     compileSubclasses(curClass)
   }
 
-  def compileReadFunction(curClass: ClassSpec) = {
+  def compileReadFunction(curClass: ClassSpec): Unit = {
     lang.classConstructorHeader(
       curClass.name,
       curClass.parentType,
@@ -64,7 +64,7 @@ class RustClassCompiler(
       case _ => None
     }
 
-    lang.readHeader(defEndian, false)
+    lang.readHeader(defEndian, isEmpty = false)
 
     curClass.meta.endian match {
       case Some(ce: CalcEndian) => compileCalcEndian(ce)
@@ -88,12 +88,14 @@ class RustClassCompiler(
     lang.runReadCalc()
   }
 
-  override def compileInstances(curClass: ClassSpec) = {
-    lang.instanceDeclHeader(curClass.name)
-    curClass.instances.foreach { case (instName, instSpec) =>
-      compileInstance(curClass.name, instName, instSpec, curClass.meta.endian)
+  override def compileInstances(curClass: ClassSpec): Unit = {
+    if (curClass.instances.nonEmpty) {
+      lang.instanceDeclHeader(curClass.name)
+      curClass.instances.foreach { case (instName, instSpec) =>
+        compileInstance(curClass.name, instName, instSpec, curClass.meta.endian)
+      }
+      lang.instanceFooter
     }
-    lang.instanceFooter
   }
 
   override def compileInstance(className: List[String], instName: InstanceIdentifier, instSpec: InstanceSpec, endian: Option[Endianness]): Unit = {
