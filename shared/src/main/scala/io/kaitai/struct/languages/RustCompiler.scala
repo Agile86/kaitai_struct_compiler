@@ -383,9 +383,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case ProcessXor(xorValue) =>
         translator.detectType(xorValue) match {
           case _: IntType =>
-            s"S::process_xor_one(&$srcExpr, ${expression(xorValue)})"
+            s"S::process_xor_one($srcExpr.borrow().as_slice(), ${expression(xorValue)})"
           case _: BytesType =>
-            s"S::process_xor_many(&$srcExpr, &${translator.remove_deref(expression(xorValue))})"
+            s"S::process_xor_many($srcExpr.borrow().as_slice(), &${translator.remove_deref(expression(xorValue))})"
           case _ =>
             ???
         }
@@ -542,7 +542,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       Some(instName),
       typeProvider.nowClass,
       dataType,
-      excludeOptionWrapper = true
+      excludeOptionWrapper = true,
+      excludeRefCellWrapper = true
     )
     out.puts(s") -> KResult<Ref<$typeName>> {")
     out.inc
@@ -762,7 +763,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       }
     }
     if (!done)
-      out.puts(s"${privateMemberName(id)} = $expr;")
+      out.puts(s"*${privateMemberName(id)}.borrow_mut() = $expr;")
   }
 
   override def handleAssignmentTempVar(dataType: DataType, id: String, expr: String): Unit =
