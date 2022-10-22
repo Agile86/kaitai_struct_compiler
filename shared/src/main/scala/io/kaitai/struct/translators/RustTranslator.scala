@@ -7,7 +7,7 @@ import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.exprlang.Ast.expr
 import io.kaitai.struct.format.{Identifier, IoIdentifier, ParentIdentifier, RootIdentifier}
 import io.kaitai.struct.languages.RustCompiler
-import io.kaitai.struct.{RuntimeConfig, Utils}
+import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig, Utils}
 
 class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   extends BaseTranslator(provider) {
@@ -76,6 +76,44 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
 
+  def findMember(attrName: String): Option[MemberSpec] = {
+    def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
+      inClass.seq.foreach { el =>
+        if (el.id == NamedIdentifier(attrName))
+          return Some(el)
+      }
+
+      inClass.params.foreach { el =>
+        if (el.id == NamedIdentifier(attrName))
+          return Some(el)
+      }
+
+      val inst = inClass.instances.get(InstanceIdentifier(attrName))
+      if (inst.isDefined)
+        return inst
+
+      inClass.types.foreach{ t =>
+        val found = findInClass(t._2)
+        if (found.isDefined)
+          return found
+      }
+
+      None
+    }
+
+    val ms = findInClass(provider.nowClass)
+    if (ms.isDefined)
+      return ms
+
+    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+      val ms = findInClass(cls._2)
+      if (ms.isDefined)
+        return ms
+    }
+
+    None
+  }
+
   def get_top_class(c: ClassSpec): ClassSpec = c.upClass match {
     case Some(upClass) => get_top_class(upClass)
     case None => c
@@ -106,19 +144,32 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val t = translate(value)
     val a = doName(attrName)
     var r = ""
-    if (need_deref(attrName)) {
-      if (t.charAt(0) == '*') {
-        r = s"$t.$a"
-      } else {
-        r = s"*$t.$a"
-      }
-    } else {
-      if (t.charAt(0) == '*') {
-        r = s"${t.substring(1)}.$a"
-      } else {
-        r = s"$t.$a"
+
+    val attr = findMember(attrName)
+    if (attr.isDefined) {
+      val attrType = attr.get.dataTypeComposite
+      attrType match {
+        case _: NumericType =>
+          r = s"*$t.$a"
+        case _: UserTypeInstream =>
+          r = s"$t.$a.as_deref().unwrap()"
+        case _ =>
+          if (need_deref(attrName)) {
+            if (t.charAt(0) == '*') {
+              r = s"$t.$a"
+            } else {
+              r = s"*$t.$a"
+            }
+          } else {
+            if (t.charAt(0) == '*') {
+              r = s"${t.substring(1)}.$a"
+            } else {
+              r = s"$t.$a"
+            }
+          }
       }
     }
+
     attrName match {
       case Identifier.IO =>
         r = r.replace("()._io()", "_raw()")
