@@ -735,7 +735,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, idType)
           if (typeName.startsWith("RefCell")) {
             if (opaque) {
-              out.puts(s"*${privateMemberName(id)}.borrow_mut() = (Some(Box::new($expr));")
+              out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
             } else {
               out.puts(s"*${privateMemberName(id)}.borrow_mut() = $expr;")
             }
