@@ -101,17 +101,22 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       None
     }
 
-    val ms = findInClass(provider.nowClass)
-    if (ms.isDefined)
-      return ms
+    val attr = attrName match {
+      case Identifier.PARENT => None
+      case _ => {
+        val ms = findInClass(provider.nowClass)
+        if (ms.isDefined)
+          return ms
 
-    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
-      val ms = findInClass(cls._2)
-      if (ms.isDefined)
-        return ms
+        provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+          val ms = findInClass(cls._2)
+          if (ms.isDefined)
+            return ms
+        }
+        None
+      }
     }
-
-    None
+    attr
   }
 
   def get_top_class(c: ClassSpec): ClassSpec = c.upClass match {
@@ -154,19 +159,22 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         case _: UserTypeInstream =>
           r = s"$t.$a.as_deref().unwrap()"
         case _ =>
-          if (need_deref(attrName)) {
-            if (t.charAt(0) == '*') {
-              r = s"$t.$a"
-            } else {
-              r = s"*$t.$a"
-            }
-          } else {
-            if (t.charAt(0) == '*') {
-              r = s"${t.substring(1)}.$a"
-            } else {
-              r = s"$t.$a"
-            }
-          }
+      }
+    }
+
+    if (r.isEmpty) {
+      if (need_deref(attrName)) {
+        if (t.charAt(0) == '*') {
+          r = s"$t.$a"
+        } else {
+          r = s"*$t.$a"
+        }
+      } else {
+        if (t.charAt(0) == '*') {
+          r = s"${t.substring(1)}.$a"
+        } else {
+          r = s"$t.$a"
+        }
       }
     }
 
