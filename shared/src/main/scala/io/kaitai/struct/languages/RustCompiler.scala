@@ -409,7 +409,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         val argList = args.map(expression).mkString(", ")
         val argListInParens = s"($argList)"
         out.puts(s"let $procName = $procClass::new$argListInParens;")
-        s"$procName.decode(&$srcExpr)"
+        out.puts(s"let slice_holder = &$srcExpr.borrow()[..];")
+        s"$procName.decode(slice_holder)"
     }
     handleAssignment(varDest, expr, rep, isRaw = false)
   }
@@ -889,13 +890,18 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                 include: Boolean): String = {
     val ioId = privateMemberName(IoIdentifier)
     val expr = padRight match {
-      case Some(p) => s"$ioId.bytes_strip_right($expr0, $p).into()"
+      case Some(p) => s"$ioId.bytes_strip_right($expr0.as_slice(), $p).into()"
       case None => expr0
     }
 
     terminator match {
-      case Some(term) => s"$ioId.bytes_terminate($expr, $term, $include).into()"
-      case None => expr
+      case Some(term) =>
+        if (!expr.endsWith(".into()"))
+          s"$ioId.bytes_terminate($expr.as_slice(), $term, $include).into()"
+        else
+          s"$ioId.bytes_terminate($expr, $term, $include).into()"
+      case None =>
+        expr
     }
   }
 
@@ -995,7 +1001,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStream.borrow();")
           newStream = ids
         }
-        out.puts(s"let $localIO = BytesReader::new(&$newStream);")
+        out.puts(s"let slice_holder = &$newStream.borrow()[..];")
+        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
         s"&$localIO"
       case _ =>
         val ids = idToStr(id)
@@ -1004,7 +1011,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStreamRaw.borrow();")
           newStreamRaw = ids
         }
-        out.puts(s"let $localIO = BytesReader::new(&$newStreamRaw.last().unwrap());")
+        out.puts(s"let slice_holder = &$newStreamRaw.last().unwrap().borrow()[..];")
+        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
         s"&$localIO"
     }
 
