@@ -102,7 +102,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
     val attr = attrName match {
-      case Identifier.PARENT => None
+      case Identifier.PARENT | Identifier.IO =>
+        None
       case _ => {
         val ms = findInClass(provider.nowClass)
         if (ms.isDefined)
