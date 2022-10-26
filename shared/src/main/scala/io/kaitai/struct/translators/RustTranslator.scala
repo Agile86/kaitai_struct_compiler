@@ -396,7 +396,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     if (bytesExpr.charAt(0) == '*') {
       s"decode_string(&$bytesExpr, &${translate(encoding)})?"
     } else {
-      s"decode_string($bytesExpr, &${translate(encoding)})?"
+      s"decode_string(${bytesExpr.replace(".to_vec()", "")}, &${translate(encoding)})?"
     }
   }
 
