@@ -775,7 +775,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                          io: String,
                          defEndian: Option[FixedEndian]): String = {
     var addParams = ""
-    var typeAnnotation = ""
+    var result = "t"
     val expr = dataType match {
       case t: ReadableType =>
         t match {
@@ -787,14 +787,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"$io.read_${t.apiCall(defEndian)}()?.into()"
         }
       case _: BytesEosType =>
-        typeAnnotation = ": Vec<u8>"
-        s"$io.read_bytes_full()?.into()"
+        result = "t.to_vec()"
+        s"$io.read_bytes_full()?"
       case b: BytesTerminatedType =>
-        typeAnnotation = ": Vec<u8>"
-        s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?.into()"
+        result = "t.to_vec()"
+        s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?"
       case b: BytesLimitType =>
-        typeAnnotation = ": Vec<u8>"
-        s"$io.read_bytes(${expression(b.size)} as usize)?.into()"
+        result = "t.to_vec()"
+        s"$io.read_bytes(${expression(b.size)} as usize)?"
       case BitsType1(bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}(1)? != 0"
       case BitsType(width: Int, bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}($width)?"
       case t: UserType =>
@@ -880,8 +880,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // https://github.com/rust-lang/rust/issues/82656
     // https://github.com/rust-lang/rust/issues/70919
     // workaround:
-    out.puts(s"let t$typeAnnotation = $expr;")
-    s"t"
+    out.puts(s"let t = $expr;")
+    result
   }
 
   override def bytesPadTermExpr(expr0: String,
