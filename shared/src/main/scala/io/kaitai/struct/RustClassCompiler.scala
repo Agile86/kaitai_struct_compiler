@@ -90,7 +90,7 @@ class RustClassCompiler(
   }
 
   override def compileInstances(curClass: ClassSpec): Unit = {
-    if (curClass.instances.nonEmpty) {
+    if (curClass.instances.nonEmpty || curClass.meta.endian.isDefined) {
       lang.instanceDeclHeader(curClass.name)
       curClass.instances.foreach { case (instName, instSpec) =>
         compileInstance(curClass.name, instName, instSpec, curClass.meta.endian)
