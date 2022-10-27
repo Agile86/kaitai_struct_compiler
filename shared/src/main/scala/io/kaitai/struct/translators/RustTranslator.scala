@@ -151,17 +151,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val a = doName(attrName)
     var r = ""
 
-    val attr = findMember(attrName)
-    if (attr.isDefined) {
-      val attrType = attr.get.dataTypeComposite
-      attrType match {
-        case _: NumericType =>
-          r = s"*$t.$a"
-        case _: UserTypeInstream =>
-          r = s"$t.$a.as_deref().unwrap()"
-        case _ =>
-      }
-    }
+//    val attr = findMember(attrName)
+//    if (attr.isDefined) {
+//      val attrType = attr.get.dataTypeComposite
+//      attrType match {
+//        case _: NumericType =>
+//          r = s"*$t.$a"
+//        case _: UserTypeInstream =>
+//          r = s"$t.$a.as_deref().unwrap()"
+//        case _ =>
+//      }
+//    }
 
     if (r.isEmpty) {
       if (need_deref(attrName)) {
