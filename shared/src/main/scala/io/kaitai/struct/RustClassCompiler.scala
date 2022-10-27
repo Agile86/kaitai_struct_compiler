@@ -90,13 +90,11 @@ class RustClassCompiler(
   }
 
   override def compileInstances(curClass: ClassSpec): Unit = {
-    if (curClass.instances.nonEmpty) {
-      lang.instanceDeclHeader(curClass.name)
-      curClass.instances.foreach { case (instName, instSpec) =>
-        compileInstance(curClass.name, instName, instSpec, curClass.meta.endian)
-      }
-      lang.instanceFooter
+    lang.instanceDeclHeader(curClass.name)
+    curClass.instances.foreach { case (instName, instSpec) =>
+      compileInstance(curClass.name, instName, instSpec, curClass.meta.endian)
     }
+    lang.instanceFooter
   }
 
   override def compileInstance(className: List[String], instName: InstanceIdentifier, instSpec: InstanceSpec, endian: Option[Endianness]): Unit = {
