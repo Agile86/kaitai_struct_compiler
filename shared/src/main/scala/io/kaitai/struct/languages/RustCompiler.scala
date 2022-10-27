@@ -177,7 +177,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case IoIdentifier | RootIdentifier | ParentIdentifier =>
         return
       case EndianIdentifier =>
-        s"RefCell<${kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)}>"
+        s"RefCell<${kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType, excludeRefCellWrapper = true)}>"
       case _ =>
         kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
     }
@@ -186,7 +186,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   def kaitaiTypeToNativeTypeWrapper(id: Option[Identifier],
-                                    attrType: DataType): String = {
+                                    attrType: DataType,
+                                    excludeRefCellWrapper: Boolean = false): String = {
     if (id.isDefined) id.get match {
       case RawIdentifier(inner) =>
         val found = translator.get_instance(typeProvider.nowClass, idToStr(inner))
@@ -196,7 +197,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         }
       case _ =>
     }
-    kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType)
+    kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType, excludeRefCellWrapper = excludeRefCellWrapper)
   }
 
   override def attributeReader(attrName: Identifier,
@@ -409,8 +410,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         val argList = args.map(expression).mkString(", ")
         val argListInParens = s"($argList)"
         out.puts(s"let $procName = $procClass::new$argListInParens;")
-        out.puts(s"let slice_holder = &$srcExpr.borrow()[..];")
-        s"$procName.decode(slice_holder)"
+        s"$procName.decode($srcExpr.as_slice())"
     }
     handleAssignment(varDest, expr, rep, isRaw = false)
   }
@@ -462,8 +462,13 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case Some(_: CalcEndian) | Some(InheritedEndian) =>
         out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
         out.inc
-        val t = kaitaiTypeToNativeType(Some(EndianIdentifier), typeProvider.nowClass, IntMultiType(signed = true, Width4, None), excludeOptionWrapper = true)
-        out.puts(s"pub fn set_endian(&mut self, ${idToStr(EndianIdentifier)}: $t) {")
+        val t = kaitaiTypeToNativeType( Some(EndianIdentifier),
+                                        typeProvider.nowClass,
+                                        IntMultiType(signed = true, Width4, None),
+                                        excludeOptionWrapper = true,
+                                        excludeRefCellWrapper = true
+                                      )
+        out.puts(s"pub fn set_endian(&self, ${idToStr(EndianIdentifier)}: $t) {")
         out.inc
         handleAssignmentSimple(EndianIdentifier, s"${idToStr(EndianIdentifier)}")
         out.dec
@@ -963,12 +968,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def switchIfCaseFirstStart(condition: Ast.expr): Unit = {
-    out.puts(s"if *on == ${expression(condition)} {")
+    out.puts(s"if on.as_slice() == ${expression(condition)} {")
     out.inc
   }
 
   override def switchIfCaseStart(condition: Ast.expr): Unit = {
-    out.puts(s"else if *on == ${expression(condition)} {")
+    out.puts(s"else if on.as_slice() == ${expression(condition)} {")
     out.inc
   }
 
@@ -1001,8 +1006,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStream.borrow();")
           newStream = ids
         }
-        out.puts(s"let slice_holder = &$newStream.borrow()[..];")
-        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
+        out.puts(s"let $localIO = BytesReader::new($newStream.as_slice());")
         s"&$localIO"
       case _ =>
         val ids = idToStr(id)
@@ -1011,8 +1015,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStreamRaw.borrow();")
           newStreamRaw = ids
         }
-        out.puts(s"let slice_holder = &$newStreamRaw.last().unwrap().borrow()[..];")
-        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
+        out.puts(s"let $localIO = BytesReader::new($newStreamRaw.last().unwrap().as_slice());")
         s"&$localIO"
     }
 
