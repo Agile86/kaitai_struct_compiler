@@ -53,7 +53,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     outHeader.puts("extern crate kaitai;")
 
     importList.add(
-      "use kaitai::*;"
+      """use kaitai::*;
+        |use kaitai::pt::*;
+        |""".stripMargin
     )
     importList.add("use std::convert::{TryFrom, TryInto};")
     importList.add("use std::cell::{Ref, Cell, RefCell};")
@@ -1006,7 +1008,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStream.borrow();")
           newStream = ids
         }
-        out.puts(s"let $localIO = BytesReader::new($newStream.as_slice());")
+        out.puts(s"let slice_holder = &$newStream.borrow()[..];")
+        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
         s"&$localIO"
       case _ =>
         val ids = idToStr(id)
@@ -1015,7 +1018,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStreamRaw.borrow();")
           newStreamRaw = ids
         }
-        out.puts(s"let $localIO = BytesReader::new($newStreamRaw.last().unwrap().as_slice());")
+        out.puts(s"let slice_holder = &$newStreamRaw.last().borrow()[..];")
+        out.puts(s"let $localIO = BytesReader::new(slice_holder);")
         s"&$localIO"
     }
 
@@ -1337,7 +1341,7 @@ object RustCompiler
                              excludeRefCellWrapper: Boolean = false,
                              excludeBox: Boolean = false): String = {
     def wrapRefCell(s: String): String =
-      if (excludeRefCellWrapper) s else s"RefCell<$s>"
+      if (excludeRefCellWrapper || s.startsWith("ParamType<")) s else s"RefCell<$s>"
 
     attrType match {
       // TODO: Not exhaustive
@@ -1352,7 +1356,7 @@ object RustCompiler
 
         // Because we can't predict if opaque types will recurse, we have to box them
         val typeName =
-          if (!excludeBox && t.isOpaque)                    s"Option<Box<$baseName>>"
+          if (!excludeBox && t.isOpaque)                    s"ParamType<Box<$baseName>>"
           else                                              s"$baseName"
         if (excludeOptionWrapper || excludeRefCellWrapper)  typeName
         else                                                wrapRefCell(typeName)
