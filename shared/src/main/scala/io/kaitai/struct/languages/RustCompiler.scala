@@ -211,6 +211,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _ =>
         kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
     }
+    val valName =
+      if (typeName.startsWith("ParamType<Box<")) {
+        val pat = "ParamType<Box<([^>]+)>>".r
+        val pat(name) = typeName
+        name
+      } else {
+        ""
+      }
     val typeNameEx = kaitaiTypeToNativeType(Some(attrName),
                                             typeProvider.nowClass,
                                             attrType,
@@ -247,7 +255,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       if (typeName.startsWith("RefCell")) {
         out.puts(s"pub fn $fn(&self) -> Ref<$typeNameEx> {")
       } else {
-        out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
+        if (valName.nonEmpty) {
+          out.puts(s"pub fn $fn(&self) -> $valName {")
+        } else {
+          out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
+        }
       }
       out.inc
       if (typeName != typeNameEx) {
@@ -257,7 +269,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
         }
       } else {
-        out.puts(s"&self.${idToStr(attrName)}")
+        if (valName.nonEmpty) {
+          out.puts(s"self.${idToStr(attrName)}.borrow().as_ref().unwrap().as_ref().clone()")
+        } else {
+          out.puts(s"&self.${idToStr(attrName)}")
+        }
       }
     }
     out.dec
