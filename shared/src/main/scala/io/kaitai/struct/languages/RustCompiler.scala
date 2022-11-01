@@ -5,6 +5,7 @@ import io.kaitai.struct.datatype.DataType.{ReadableType, _}
 import io.kaitai.struct.datatype._
 import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.format._
+import io.kaitai.struct.languages.RustCompiler.TypeKind.TypeKind
 import io.kaitai.struct.languages.components._
 import io.kaitai.struct.translators.RustTranslator
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig}
@@ -188,42 +189,34 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   def kaitaiTypeToNativeTypeWrapper(id: Option[Identifier],
-                                    attrType: DataType,
-                                    excludeRefCellWrapper: Boolean = false): String = {
+                                    attrType: DataType): (String, TypeKind) = {
     if (id.isDefined) id.get match {
       case RawIdentifier(inner) =>
         val found = translator.get_instance(typeProvider.nowClass, idToStr(inner))
         if (found.isDefined) {
           // raw id for instance should have RefCell wrapper
-          return s"RefCell<${kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType)}>"
+          return (s"RefCell<${kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType)}>", TypeKind.Param)
         }
       case _ =>
     }
-    kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType, excludeRefCellWrapper = excludeRefCellWrapper)
+    kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType)
   }
 
   override def attributeReader(attrName: Identifier,
                                attrType: DataType,
                                isNullable: Boolean): Unit = {
-     val typeName = attrName match {
+     val (typeName, typeKind) = attrName match {
       // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
       case IoIdentifier | RootIdentifier | ParentIdentifier => return
       case _ =>
         kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
     }
-    val valName =
-      if (typeName.startsWith("ParamType<Box<")) {
-        val pat = "ParamType<Box<([^>]+)>>".r
-        val pat(name) = typeName
-        name
-      } else {
-        ""
-      }
     val typeNameEx = kaitaiTypeToNativeType(Some(attrName),
                                             typeProvider.nowClass,
                                             attrType,
                                             excludeOptionWrapper = true,
-                                            excludeRefCellWrapper = true)
+                                            excludeRefCellWrapper = true,
+                                            excludeBox = true)
     out.puts(
       s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
@@ -252,11 +245,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       fn = s"${fn}_enum"
     }
     {
-      if (typeName.startsWith("RefCell")) {
+      if (typeName.startsWith("RefCell<")) {
         out.puts(s"pub fn $fn(&self) -> Ref<$typeNameEx> {")
       } else {
-        if (valName.nonEmpty) {
-          out.puts(s"pub fn $fn(&self) -> $valName {")
+        if (typeName.startsWith("ParamType<")) {
+          out.puts(s"pub fn $fn(&self) -> $typeNameEx {")
         } else {
           out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
         }
@@ -266,11 +259,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         if (typeName.startsWith("RefCell")) {
           out.puts(s"self.${idToStr(attrName)}.borrow()")
         } else {
-          out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
-        }
-      } else {
-        if (valName.nonEmpty) {
-          out.puts(s"self.${idToStr(attrName)}.borrow().as_ref().unwrap().as_ref().clone()")
+          if (typeName.startsWith("ParamType<")) {
+            out.puts(s"self.${idToStr(attrName)}.borrow().as_ref().unwrap().as_ref().clone()")
+          } else {
+            out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
+          }
         } else {
           out.puts(s"&self.${idToStr(attrName)}")
         }
@@ -457,10 +450,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     if (typeProvider.nowClass.params.nonEmpty) {
       val paramsArg = Utils.join(typeProvider.nowClass.params.map { p =>
         val n = paramName(p.id)
-        val t = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, excludeOptionWrapper = true)
-        var byref = ""
-        if (!translator.is_copy_type(p.dataType))
-          byref = "&"
+        val t = kaitaiTypeToNativeType( Some(p.id),
+                                        typeProvider.nowClass,
+                                        p.dataType,
+                                        excludeOptionWrapper = true,
+                                        excludeBox = true)
+        val byref = if (!translator.is_copy_type(p.dataType)) "&" else ""
         // generate param access helper
         attributeReader(p.id, p.dataType, isNullable = false)
         s"$n: $byref$t"
@@ -1350,14 +1345,16 @@ object RustCompiler
       case _ => false
     }
 
+  object TypeKind extends Enumeration {
+    type TypeKind = Value
+    val Raw, Option, RefCell, Param = Value
+  }
+
   def kaitaiTypeToNativeType(id: Option[Identifier],
                              cs: ClassSpec,
-                             attrType: DataType,
-                             excludeOptionWrapper: Boolean = false,
-                             excludeRefCellWrapper: Boolean = false,
-                             excludeBox: Boolean = false): String = {
-    def wrapRefCell(s: String): String =
-      if (excludeRefCellWrapper || s.startsWith("ParamType<")) s else s"RefCell<$s>"
+                             attrType: DataType): (String, TypeKind) = {
+//    def wrapRefCell(s: String): String =
+//      if (excludeRefCellWrapper || s.startsWith("ParamType<")) s else s"RefCell<$s>"
 
     attrType match {
       // TODO: Not exhaustive
