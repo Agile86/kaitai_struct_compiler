@@ -175,27 +175,27 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def attributeDeclaration(attrName: Identifier,
                                     attrType: DataType,
                                     isNullable: Boolean): Unit = {
-    val typeName = attrName match {
+    val nativeType = attrName match {
       // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
       case IoIdentifier | RootIdentifier | ParentIdentifier =>
         return
       case EndianIdentifier =>
-        s"RefCell<${kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType, excludeRefCellWrapper = true)}>"
+        kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType).copy(kind = TypeKind.RefCell)
       case _ =>
         kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
     }
 
-    out.puts(s"${idToStr(attrName)}: $typeName,")
+    out.puts(s"${idToStr(attrName)}: ${nativeType.attrType},")
   }
 
   def kaitaiTypeToNativeTypeWrapper(id: Option[Identifier],
-                                    attrType: DataType): (String, TypeKind) = {
+                                    attrType: DataType): NativeType = {
     if (id.isDefined) id.get match {
       case RawIdentifier(inner) =>
         val found = translator.get_instance(typeProvider.nowClass, idToStr(inner))
         if (found.isDefined) {
           // raw id for instance should have RefCell wrapper
-          return (s"RefCell<${kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType)}>", TypeKind.Param)
+          return kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType).copy(kind = TypeKind.Param)
         }
       case _ =>
     }
@@ -205,18 +205,13 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def attributeReader(attrName: Identifier,
                                attrType: DataType,
                                isNullable: Boolean): Unit = {
-     val (typeName, typeKind) = attrName match {
+     val nativeType = attrName match {
       // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
       case IoIdentifier | RootIdentifier | ParentIdentifier => return
       case _ =>
         kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
     }
-    val typeNameEx = kaitaiTypeToNativeType(Some(attrName),
-                                            typeProvider.nowClass,
-                                            attrType,
-                                            excludeOptionWrapper = true,
-                                            excludeRefCellWrapper = true,
-                                            excludeBox = true)
+
     out.puts(
       s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
@@ -245,29 +240,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       fn = s"${fn}_enum"
     }
     {
-      if (typeName.startsWith("RefCell<")) {
-        out.puts(s"pub fn $fn(&self) -> Ref<$typeNameEx> {")
-      } else {
-        if (typeName.startsWith("ParamType<")) {
-          out.puts(s"pub fn $fn(&self) -> $typeNameEx {")
-        } else {
-          out.puts(s"pub fn $fn(&self) -> &$typeNameEx {")
-        }
-      }
+      out.puts(nativeType.attrGetterDcl(fn))
       out.inc
-      if (typeName != typeNameEx) {
-        if (typeName.startsWith("RefCell")) {
-          out.puts(s"self.${idToStr(attrName)}.borrow()")
-        } else {
-          if (typeName.startsWith("ParamType<")) {
-            out.puts(s"self.${idToStr(attrName)}.borrow().as_ref().unwrap().as_ref().clone()")
-          } else {
-            out.puts(s"self.${idToStr(attrName)}.as_ref().unwrap()")
-          }
-        } else {
-          out.puts(s"&self.${idToStr(attrName)}")
-        }
-      }
+      out.puts(nativeType.attrGetterImpl(idToStr(attrName)))
     }
     out.dec
     out.puts("}")
@@ -301,11 +276,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
    override def condRepeatCommonInit(id: Identifier, dataType: DataType, needRaw: NeedRaw): Unit = {
     // this line required for handleAssignmentRepeatUntil
     typeProvider._currentIteratorType = Some(dataType)
-//    if (in_instance) {
-      out.puts(s"*${privateMemberName(id)}.borrow_mut() = Vec::new();")
-//    } else {
-//      out.puts(s"${privateMemberName(id)} = Vec::new();")
-//    }
+    out.puts(s"*${privateMemberName(id)}.borrow_mut() = Vec::new();")
   }
 
   override def condRepeatEosHeader(id: Identifier,
@@ -450,15 +421,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     if (typeProvider.nowClass.params.nonEmpty) {
       val paramsArg = Utils.join(typeProvider.nowClass.params.map { p =>
         val n = paramName(p.id)
-        val t = kaitaiTypeToNativeType( Some(p.id),
-                                        typeProvider.nowClass,
-                                        p.dataType,
-                                        excludeOptionWrapper = true,
-                                        excludeBox = true)
-        val byref = if (!translator.is_copy_type(p.dataType)) "&" else ""
+        val nativeType = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType)
         // generate param access helper
         attributeReader(p.id, p.dataType, isNullable = false)
-        s"$n: $byref$t"
+        s"$n: ${nativeType.attrType}"
       }, "", ", ", "")
 
       out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
@@ -475,13 +441,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case Some(_: CalcEndian) | Some(InheritedEndian) =>
         out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
         out.inc
-        val t = kaitaiTypeToNativeType( Some(EndianIdentifier),
+        val nativeType = kaitaiTypeToNativeType( Some(EndianIdentifier),
                                         typeProvider.nowClass,
-                                        IntMultiType(signed = true, Width4, None),
-                                        excludeOptionWrapper = true,
-                                        excludeRefCellWrapper = true
-                                      )
-        out.puts(s"pub fn set_endian(&self, ${idToStr(EndianIdentifier)}: $t) {")
+                                        IntMultiType(signed = true, Width4, None))
+        out.puts(s"pub fn set_endian(&self, ${idToStr(EndianIdentifier)}: ${nativeType.attrType}) {")
         out.inc
         handleAssignmentSimple(EndianIdentifier, s"${idToStr(EndianIdentifier)}")
         out.dec
@@ -502,15 +465,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def instanceDeclaration(attrName: InstanceIdentifier,
                                    attrType: DataType,
                                    isNullable: Boolean): Unit = {
-    val typeName = kaitaiTypeToNativeType(
-      Some(attrName),
-      typeProvider.nowClass,
-      attrType,
-      excludeOptionWrapper = true,
-      excludeRefCellWrapper = true
-    )
+    val nativeType = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType)
     out.puts(s"${calculatedFlagForName(attrName)}: Cell<bool>,")
-    out.puts(s"${idToStr(attrName)}: RefCell<$typeName>,")
+    out.puts(s"${idToStr(attrName)}: ${nativeType.attrType},")
   }
 
   def calculatedFlagForName(ksName: Identifier) =
@@ -557,14 +514,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S,")
     out.puts(s"${privateMemberName(RootIdentifier)}: Option<&${classTypeName(typeProvider.topClass)}>")
     out.dec
-    val typeName = kaitaiTypeToNativeType(
-      Some(instName),
-      typeProvider.nowClass,
-      dataType,
-      excludeOptionWrapper = true,
-      excludeRefCellWrapper = true
-    )
-    out.puts(s") -> KResult<Ref<$typeName>> {")
+    val nativeType = kaitaiTypeToNativeType(Some(instName), typeProvider.nowClass, dataType)
+    out.puts(s") -> KResult<Ref<${nativeType.attrType}>> {")
     out.inc
   }
 
@@ -705,22 +656,20 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   def handleAssignmentParams(id: Identifier, expr: String): Unit = {
     val paramId = typeProvider.nowClass.params.find(s => s.id == id)
-    var need_clone = false
-    if (paramId.isDefined) {
-      need_clone = !translator.is_copy_type(paramId.get.dataType)
-    }
-    val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, paramId.get.dataType)
-    if (typeName.startsWith("RefCell"))
-      out.puts(s"${privateMemberName(id)} = RefCell::new($expr.clone());")
+    val need_clone = if (paramId.isDefined) !translator.is_copy_type(paramId.get.dataType) else false
+    val member = privateMemberName(id)
+    val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, paramId.get.dataType)
+    if (nativeType.kind == TypeKind.RefCell)
+      out.puts(s"$member = RefCell::new($expr.clone());")
     else {
       paramId.get.dataType match {
         case _: EnumType =>
-          out.puts(s"${privateMemberName(id)} = Some($expr.clone());")
+          out.puts(s"$member = Some($expr.clone());")
         case _ =>
           if (need_clone)
-            out.puts(s"${privateMemberName(id)} = $expr.clone();")
+            out.puts(s"$member = $expr.clone();")
           else
-            out.puts(s"${privateMemberName(id)} = $expr;")
+            out.puts(s"$member = $expr;")
       }
     }
   }
@@ -751,8 +700,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         case _ =>
       }
       if (refcell) {
-          val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, idType)
-          if (typeName.startsWith("RefCell")) {
+          val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, idType)
+          if (nativeType.kind == TypeKind.RefCell) {
             if (opaque) {
               out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
             } else {
@@ -819,7 +768,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         addParams = Utils.join(t.args.map{ a =>
           val typ = translator.detectType(a)
           var byref = ""
-          val t = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ)
+          val nativeType = kaitaiTypeToNativeType(None, typeProvider.nowClass, typ)
           var try_into = ""
           // exclude enums
           typ match {
@@ -830,7 +779,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                 byref = "&"
           }
           var need_deref = ""
-          if (t.startsWith("RefCell"))
+          if (nativeType.kind == TypeKind.RefCell)
             need_deref = "&*"
           s"$byref$need_deref${translator.translate(a)}$try_into"
         }, "", ", ", "")
@@ -1040,12 +989,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   def switchTypeEnum(id: Identifier, st: SwitchType): Unit = {
     // Because Rust can't handle `AnyType` in the type hierarchy,
     // we generate an enum with all possible variations
-    val enum_typeName = kaitaiTypeToNativeType(
-      Some(id),
-      typeProvider.nowClass,
-      st,
-      excludeOptionWrapper = true
-    )
+    val enum_typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, st).attrType
     out.puts("#[derive(Debug, PartialEq, Clone)]")
     out.puts(s"pub enum $enum_typeName {")
     out.inc
@@ -1057,16 +1001,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       types.foreach(t => {
         // Because this switch type will itself be in an option, we can exclude it from user types
         val variantName = switchVariantName(id, t)
-        val typeName = kaitaiTypeToNativeType(
-          Some(id),
-          typeProvider.nowClass,
-          t,
-          excludeOptionWrapper = true
-        )
-        val new_typename = types_set.add(typeName)
+        val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t)
+        val new_typename = types_set.add(nativeType.attrType)
         // same typename could be in case of different endianness
         if (new_typename) {
-          out.puts(s"$variantName($typeName),")
+          out.puts(s"$variantName(${nativeType.attrType}),")
         }
       })
     }
@@ -1092,12 +1031,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           case _ : BytesType =>
             v = "v.to_vec()"
             s"&[u8]" // special case for Bytes(Vec[u8]) (else switch)
-          case _ => kaitaiTypeToNativeType(
-              Some(id),
-              typeProvider.nowClass,
-              t,
-              excludeOptionWrapper = true)
-        }
+          case _ => kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).attrType
         val new_typename = types_set.add(typeName)
         if (new_typename) {
           out.puts(s"impl From<$typeName> for $enum_typeName {")
@@ -1350,16 +1284,47 @@ object RustCompiler
     val Raw, Option, RefCell, Param = Value
   }
 
+  case class NativeType(nativeType: String, kind: TypeKind.Value, dataType: DataType) {
+    def attrGetterDcl(fnName: String): String = {
+      kind match {
+        case TypeKind.RefCell =>
+          s"pub fn $fnName(&self) -> Ref<$nativeType> {"
+        case TypeKind.Param =>
+          s"pub fn $fnName(&self) -> $nativeType {"
+        case _ =>
+          s"pub fn $fnName(&self) -> &$nativeType {"
+      }
+    }
+
+    def attrGetterImpl(attrName: String) : String = {
+      kind match {
+        case TypeKind.RefCell =>
+          s"self.$attrName.borrow()"
+        case TypeKind.Param =>
+          s"self.$attrName.borrow().as_ref().unwrap().as_ref().clone()"
+        case TypeKind.Option =>
+          s"self.$attrName.as_ref().unwrap()"
+        case _ =>
+          s"&self.$attrName"
+      }
+    }
+
+    def attrType: String = {
+      val byref = if (!RustCompiler.this.translator.is_copy_type(dataType)) "&" else ""
+      s"$byref$t"
+    }
+  }
+
   def kaitaiTypeToNativeType(id: Option[Identifier],
                              cs: ClassSpec,
-                             attrType: DataType): (String, TypeKind) = {
+                             attrType: DataType): NativeType = {
 //    def wrapRefCell(s: String): String =
 //      if (excludeRefCellWrapper || s.startsWith("ParamType<")) s else s"RefCell<$s>"
 
     attrType match {
       // TODO: Not exhaustive
       case _: NumericType | _: BooleanType | _: StrType | _: BytesType =>
-        wrapRefCell(s"${kaitaiPrimitiveToNativeType(attrType)}")
+        NativeType(s"${kaitaiPrimitiveToNativeType(attrType)}", TypeKind.RefCell)
 
       case t: UserType =>
         val baseName = t.classSpec match {
