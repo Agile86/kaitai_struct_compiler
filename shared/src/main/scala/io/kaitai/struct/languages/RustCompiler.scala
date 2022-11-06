@@ -1279,6 +1279,8 @@ object RustCompiler
           s"pub fn $fnName(&self) -> Ref<$nativeType> {"
         case TypeKind.Param =>
           s"pub fn $fnName(&self) -> $nativeType {"
+        case TypeKind.Raw =>
+          s"pub fn $fnName(&self) -> $nativeType {"
         case _ =>
           s"pub fn $fnName(&self) -> &$nativeType {"
       }
@@ -1292,6 +1294,8 @@ object RustCompiler
           s"self.$attrName.borrow().as_ref().unwrap().as_ref().clone()"
         case TypeKind.Option =>
           s"self.$attrName.as_ref().unwrap()"
+        case TypeKind.Raw =>
+          s"self.$attrName"
         case _ =>
           s"&self.$attrName"
       }
@@ -1320,7 +1324,7 @@ object RustCompiler
           case None => types2class(t.name)
         }
 
-        NativeType(baseName, TypeKind.RefCell, attrType)
+        NativeType(baseName, TypeKind.Raw, attrType)
         // Because we can't predict if opaque types will recurse, we have to box them
 //        val typeName =
 //          if (!excludeBox && t.isOpaque)                    s"ParamType<Box<$baseName>>"
