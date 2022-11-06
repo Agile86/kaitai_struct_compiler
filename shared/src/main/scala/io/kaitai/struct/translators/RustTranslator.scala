@@ -7,6 +7,7 @@ import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.exprlang.Ast.expr
 import io.kaitai.struct.format.{Identifier, IoIdentifier, ParentIdentifier, RootIdentifier}
 import io.kaitai.struct.languages.RustCompiler
+import io.kaitai.struct.translators.RustTranslator.is_copy_type
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig, Utils}
 
 class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
@@ -256,16 +257,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   var context_need_deref_attr = false
 
-  def is_copy_type(dataType: DataType): Boolean = dataType match {
-    case _: SwitchType => false
-    case _: UserType => false
-    case _: BytesType => false
-    case _: ArrayType => false
-    case _: StrType => false
-    case _: EnumType => false
-    case _ => true
-  }
-
   def need_deref(s: String): Boolean = {
     var deref = false
     var found = get_attr(get_top_class(provider.nowClass), s)
@@ -453,4 +444,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
     }
   }
+}
+
+object RustTranslator {
+  def is_copy_type(dataType: DataType): Boolean = dataType match {
+    case _: SwitchType => false
+    case _: UserType => false
+    case _: BytesType => false
+    case _: ArrayType => false
+    case _: StrType => false
+    case _: EnumType => false
+    case _ => true
+  }
+
 }
