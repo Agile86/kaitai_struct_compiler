@@ -423,7 +423,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         val nativeType = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType)
         // generate param access helper
         attributeReader(p.id, p.dataType, isNullable = false)
-        s"$n: ${nativeType.attrType}"
+        s"$n: ${nativeType.paramType}"
       }, "", ", ", "")
 
       out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
@@ -658,19 +658,32 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     val need_clone = if (paramId.isDefined) !RustTranslator.is_copy_type(paramId.get.dataType) else false
     val member = privateMemberName(id)
     val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, paramId.get.dataType)
-    if (nativeType.kind == TypeKind.RefCell)
-      out.puts(s"$member = RefCell::new($expr.clone());")
-    else {
-      paramId.get.dataType match {
-        case _: EnumType =>
-          out.puts(s"$member = Some($expr.clone());")
-        case _ =>
-          if (need_clone)
-            out.puts(s"$member = $expr.clone();")
-          else
-            out.puts(s"$member = $expr;")
-      }
+    nativeType.kind match {
+      case TypeKind.RefCell =>
+        out.puts(s"$member = RefCell::new($expr.clone());")
+      case TypeKind.Param =>
+        out.puts(s"*$member.borrow_mut() = Some(Box::new($expr.clone()));")
+      case TypeKind.Option =>
+        out.puts(s"*$member.borrow_mut() = Some($expr.clone());")
+      case _ =>
+        if (need_clone)
+          out.puts(s"$member = $expr.clone();")
+        else
+          out.puts(s"$member = $expr;")
     }
+//    if (nativeType.kind == TypeKind.RefCell)
+//      out.puts(s"$member = RefCell::new($expr.clone());")
+//    else {
+//      paramId.get.dataType match {
+//        case _: EnumType =>
+//          out.puts(s"$member = Some($expr.clone());")
+//        case _ =>
+//          if (need_clone)
+//            out.puts(s"$member = $expr.clone();")
+//          else
+//            out.puts(s"$member = $expr;")
+//      }
+//    }
   }
 
   override def handleAssignmentSimple(id: Identifier, expr: String): Unit = {
@@ -691,7 +704,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         case _: EnumType =>
           done = true
           out.puts(
-            s"${privateMemberName(id)} = Some($expr);"
+            s"*${privateMemberName(id)}.borrow_mut() = $expr;"
           )
         case _: SwitchType =>
           done = true
@@ -1302,8 +1315,27 @@ object RustCompiler
     }
 
     def attrType: String = {
-      val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
-      s"$byref$nativeType"
+      kind match {
+        case TypeKind.RefCell =>
+          s"RefCell<$nativeType>"
+        case TypeKind.Param =>
+          s"ParamType<Box<$nativeType>>"
+        case _ =>
+          val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
+          s"$byref$nativeType"
+      }
+    }
+
+    def paramType: String = {
+      kind match {
+        case TypeKind.RefCell =>
+          s"Ref<$nativeType>"
+        case TypeKind.Param =>
+          s"&$nativeType"
+        case _ =>
+          val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
+          s"$byref$nativeType"
+      }
     }
   }
 
@@ -1324,7 +1356,7 @@ object RustCompiler
           case None => types2class(t.name)
         }
 
-        NativeType(baseName, TypeKind.Raw, attrType)
+        NativeType(baseName, if (t.isOpaque) TypeKind.Param else TypeKind.Raw, attrType)
         // Because we can't predict if opaque types will recurse, we have to box them
 //        val typeName =
 //          if (!excludeBox && t.isOpaque)                    s"ParamType<Box<$baseName>>"
@@ -1337,7 +1369,7 @@ object RustCompiler
           case Some(spec) => s"${types2class(spec.name)}"
           case None => s"${types2class(t.name)}"
         }
-        NativeType(typeName, TypeKind.Option, attrType)
+        NativeType(typeName, TypeKind.RefCell, attrType)
         //if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case t: ArrayType =>
