@@ -514,7 +514,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"${privateMemberName(RootIdentifier)}: Option<&${classTypeName(typeProvider.topClass)}>")
     out.dec
     val nativeType = kaitaiTypeToNativeType(Some(instName), typeProvider.nowClass, dataType)
-    out.puts(s") -> KResult<Ref<${nativeType.attrType}>> {")
+    out.puts(s") -> KResult<${nativeType.resType}> {")
     out.inc
   }
 
@@ -739,7 +739,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       }
       if (inst) {
         done = true
-        out.puts(s"*${privateMemberName(id)}.borrow_mut() = $expr;")
+        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
       }
     }
     if (!done)
@@ -787,7 +787,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             case _: NumericType => try_into = s".try_into().map_err(|_| KError::CastError)?"
             case _: EnumType =>
             case _ =>
-              if (!RustTranslator.is_copy_type(typ))
+              if ((nativeType.kind != TypeKind.Param) && !RustTranslator.is_copy_type(typ))
                 byref = "&"
           }
           var need_deref = ""
@@ -1332,6 +1332,18 @@ object RustCompiler
           s"Ref<$nativeType>"
         case TypeKind.Param =>
           s"&$nativeType"
+        case _ =>
+          val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
+          s"$byref$nativeType"
+      }
+    }
+
+    def resType: String = {
+      kind match {
+        case TypeKind.RefCell =>
+          s"Ref<$nativeType>"
+        case TypeKind.Param =>
+          s"pt::Ref<Box<$nativeType>>"
         case _ =>
           val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
           s"$byref$nativeType"
