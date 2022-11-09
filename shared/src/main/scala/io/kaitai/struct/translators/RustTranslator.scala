@@ -69,9 +69,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s
     case _ =>
       val memberFound = findMember(s)
-      if (memberFound.isDefined && memberFound.get.isInstanceOf[ValueInstanceSpec]) {
-        s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
-      } else {
+      if (memberFound.isDefined)
+        memberFound.get match {
+          case _: ValueInstanceSpec =>
+            s"$s(${privateMemberName(IoIdentifier)}, None)?"
+            //s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
+          case _: ParseInstanceSpec =>
+            s"$s(${privateMemberName(IoIdentifier)}, None)?.as_ref().unwrap()"
+          case _ =>
+            s"$s()"
+        }
+      else {
         s"$s()"
       }
   }
@@ -365,7 +373,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
-    s"i64::from(${remove_deref(translate(v))})"
+    s"i64::from(&*${remove_deref(translate(v))})"
 
   override def boolToInt(v: expr): String =
     s"(${translate(v)}) as i32"
