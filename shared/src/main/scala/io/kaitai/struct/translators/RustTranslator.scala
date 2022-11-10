@@ -112,7 +112,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val attr = attrName match {
       case Identifier.PARENT | Identifier.IO =>
         None
-      case _ => {
+      case _ =>
         val ms = findInClass(provider.nowClass)
         if (ms.isDefined)
           return ms
@@ -123,7 +123,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             return ms
         }
         None
-      }
     }
     attr
   }
@@ -290,7 +289,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"${RustCompiler.privateMemberName(RootIdentifier)}.ok_or(KError::MissingRoot)?"
+    case Identifier.ROOT => s"&self.${RustCompiler.privateMemberName(RootIdentifier)}.as_ref().unwrap().as_ref()"
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)

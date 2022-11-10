@@ -73,14 +73,17 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     )
 
   override def classHeader(name: List[String]): Unit = {
+    val className = classTypeName(typeProvider.nowClass)
     out.puts
     out.puts("#[derive(Default, Debug, PartialEq, Clone)]")
-    out.puts(s"pub struct ${classTypeName(typeProvider.nowClass)} {")
+    out.puts(s"pub struct $className {")
     out.inc
 
     // Because we can't predict whether opaque types will need lifetimes as a type parameter,
     // everyone gets a phantom data marker
     //out.puts(s"_phantom: std::marker::PhantomData<&$streamLife ()>,")
+
+    out.puts(s"${privateMemberName(RootIdentifier)}: ParamType<Box<$className>>,")
 
     typeProvider.nowClass.params.foreach { p =>
       // Make sure the parameter is imported if necessary
@@ -163,6 +166,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.dec
     out.puts(s") -> KResult<()> {")
     out.inc
+
+    out.puts(
+      s"""*self.${privateMemberName(RootIdentifier)}.borrow_mut() = match _root  {
+          |            None => Some(Box::new(self.clone())),
+          |            Some(p) => Some(Box::new(p.clone())),
+          |        };""".stripMargin)
 
     // If there aren't any attributes to parse, we need to end the read implementation here
     if (typeProvider.nowClass.seq.isEmpty)
