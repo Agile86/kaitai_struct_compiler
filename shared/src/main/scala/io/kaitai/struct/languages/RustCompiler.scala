@@ -134,7 +134,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       s"impl<$readLife, $streamLife: $readLife> $kstructName<$readLife, $streamLife> for ${classTypeName(typeProvider.nowClass)} {"
     )
     out.inc
-    out.puts(s"type Root = ${rootClassTypeName(typeProvider.nowClass)};")
+    out.puts(s"type Root = Self;")
     out.puts(
       s"type ParentStack = ${parentStackTypeName(typeProvider.nowClass)};"
     )
@@ -1010,7 +1010,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   def switchTypeEnum(id: Identifier, st: SwitchType): Unit = {
     // Because Rust can't handle `AnyType` in the type hierarchy,
     // we generate an enum with all possible variations
-    val enum_typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, st).attrType
+    val enum_typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, st).nativeType
     out.puts("#[derive(Debug, PartialEq, Clone)]")
     out.puts(s"pub enum $enum_typeName {")
     out.inc
@@ -1022,7 +1022,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       types.foreach(t => {
         // Because this switch type will itself be in an option, we can exclude it from user types
         val variantName = switchVariantName(id, t)
-        val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).attrType
+        val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).nativeType
         val new_typename = types_set.add(typeName)
         // same typename could be in case of different endianness
         if (new_typename) {
@@ -1052,7 +1052,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           case _: BytesType =>
             v = "v.to_vec()"
             s"&[u8]" // special case for Bytes(Vec[u8]) (else switch)
-          case _ => kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).attrType
+          case _ => kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).nativeType
         }
         val new_typename = types_set.add(typeName)
         if (new_typename) {
@@ -1133,9 +1133,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _: BytesType => "Bytes"
 
       case t: UserType =>
-        kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).attrType
+        kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).nativeType
       case t: EnumType =>
-        kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).attrType
+        kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).nativeType
       case t:
         ArrayType => s"Arr${switchVariantName(id, t.elType)}"
       case _ =>
@@ -1329,6 +1329,8 @@ object RustCompiler
           s"RefCell<$nativeType>"
         case TypeKind.Param =>
           s"ParamType<Box<$nativeType>>"
+        case TypeKind.Option =>
+          s"Option<$nativeType>"
         case _ =>
           val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
           s"$byref$nativeType"
@@ -1394,7 +1396,8 @@ object RustCompiler
         //if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case t: ArrayType =>
-        NativeType(s"Vec<${kaitaiTypeToNativeType(id, cs, t.elType)}>", TypeKind.RefCell, attrType)
+        val nativeType = kaitaiTypeToNativeType(id, cs, t.elType)
+        NativeType(s"Vec<${nativeType.attrType}>", TypeKind.RefCell, attrType)
         //wrapRefCell(s"Vec<${kaitaiTypeToNativeType(id, cs, t.elType, excludeOptionWrapper = true, excludeRefCellWrapper = true)}>")
 
       case _: SwitchType =>
