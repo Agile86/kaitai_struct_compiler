@@ -83,7 +83,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // everyone gets a phantom data marker
     //out.puts(s"_phantom: std::marker::PhantomData<&$streamLife ()>,")
 
-    out.puts(s"${privateMemberName(RootIdentifier)}: ParamType<Box<$className>>,")
+    out.puts(s"${privateMemberName(RootIdentifier)}: ParamType<Box<${types2class(name.slice(0, 1))}>>,")
 
     typeProvider.nowClass.params.foreach { p =>
       // Make sure the parameter is imported if necessary
@@ -134,7 +134,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       s"impl<$readLife, $streamLife: $readLife> $kstructName<$readLife, $streamLife> for ${classTypeName(typeProvider.nowClass)} {"
     )
     out.inc
-    out.puts(s"type Root = Self;")
+    out.puts(s"type Root = ${types2class(name.slice(0, 1))};")
     out.puts(
       s"type ParentStack = ${parentStackTypeName(typeProvider.nowClass)};"
     )
@@ -167,11 +167,15 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s") -> KResult<()> {")
     out.inc
 
-    out.puts(
-      s"""*self.${privateMemberName(RootIdentifier)}.borrow_mut() = match _root  {
-          |            None => Some(Box::new(self.clone())),
-          |            Some(p) => Some(Box::new(p.clone())),
-          |        };""".stripMargin)
+    if (translator.provider.nowClass.name.size == 1) {
+      out.puts(
+        s"""*self.${privateMemberName(RootIdentifier)}.borrow_mut() = match _root  {
+           |            None => Some(Box::new(self.clone())),
+           |            Some(p) => Some(Box::new(p.clone())),
+           |        };""".stripMargin)
+    } else {
+      out.puts("*self._root.borrow_mut() = Some(Box::new(_root.unwrap().clone()));")
+    }
 
     // If there aren't any attributes to parse, we need to end the read implementation here
     if (typeProvider.nowClass.seq.isEmpty)
@@ -203,7 +207,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         val found = translator.get_instance(typeProvider.nowClass, idToStr(inner))
         if (found.isDefined) {
           // raw id for instance should have RefCell wrapper
-          return kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType).copy(kind = TypeKind.Param)
+          return kaitaiTypeToNativeType(id, typeProvider.nowClass, attrType).copy(kind = TypeKind.ParamBox)
         }
       case _ =>
     }
@@ -670,7 +674,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     nativeType.kind match {
       case TypeKind.RefCell =>
         out.puts(s"$member = RefCell::new($expr.clone());")
-      case TypeKind.Param =>
+      case TypeKind.ParamBox =>
         out.puts(s"*$member.borrow_mut() = Some(Box::new($expr.clone()));")
       case TypeKind.Option =>
         out.puts(s"*$member.borrow_mut() = Some($expr.clone());")
@@ -717,7 +721,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           )
         case _: SwitchType =>
           done = true
-          out.puts(s"${privateMemberName(id)} = Some($expr);")
+          out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some($expr);")
         case _ =>
       }
       if (refcell) {
@@ -796,7 +800,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             case _: NumericType => try_into = s".try_into().map_err(|_| KError::CastError)?"
             case _: EnumType =>
             case _ =>
-              if ((nativeType.kind != TypeKind.Param) && !RustTranslator.is_copy_type(typ))
+              if ((nativeType.kind != TypeKind.ParamBox) && !RustTranslator.is_copy_type(typ))
                 byref = "&"
           }
           var need_deref = ""
@@ -1014,6 +1018,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts("#[derive(Debug, PartialEq, Clone)]")
     out.puts(s"pub enum $enum_typeName {")
     out.inc
+    out.puts("__NOT_INITED__,")
 
     val types = st.cases.values.toSet
 
@@ -1033,6 +1038,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
     out.dec
     out.puts("}")
+
+    out.puts(s"""impl Default for $enum_typeName {
+                 |    fn default() -> Self { $enum_typeName::__NOT_INITED__ }
+                 |}""".stripMargin)
 
     var enum_only_numeric = true
     types.foreach {
@@ -1291,7 +1300,7 @@ object RustCompiler
 
   object TypeKind extends Enumeration {
     type TypeKind = Value
-    val Raw, Option, RefCell, Param = Value
+    val Raw, Option, RefCell, Param, ParamBox = Value
   }
 
   case class NativeType(nativeType: String, kind: TypeKind.Value, dataType: DataType) {
@@ -1300,6 +1309,8 @@ object RustCompiler
         case TypeKind.RefCell =>
           s"pub fn $fnName(&self) -> Ref<$nativeType> {"
         case TypeKind.Param =>
+          s"pub fn $fnName(&self) -> pt::Ref<$nativeType> {"
+        case TypeKind.ParamBox =>
           s"pub fn $fnName(&self) -> $nativeType {"
         case TypeKind.Raw =>
           s"pub fn $fnName(&self) -> $nativeType {"
@@ -1313,6 +1324,8 @@ object RustCompiler
         case TypeKind.RefCell =>
           s"self.$attrName.borrow()"
         case TypeKind.Param =>
+          s"self.$attrName.borrow()"
+        case TypeKind.ParamBox =>
           s"self.$attrName.borrow().as_ref().unwrap().as_ref().clone()"
         case TypeKind.Option =>
           s"self.$attrName.as_ref().unwrap()"
@@ -1328,6 +1341,8 @@ object RustCompiler
         case TypeKind.RefCell =>
           s"RefCell<$nativeType>"
         case TypeKind.Param =>
+          s"ParamType<$nativeType>"
+        case TypeKind.ParamBox =>
           s"ParamType<Box<$nativeType>>"
         case TypeKind.Option =>
           s"Option<$nativeType>"
@@ -1341,7 +1356,7 @@ object RustCompiler
       kind match {
         case TypeKind.RefCell =>
           s"Ref<$nativeType>"
-        case TypeKind.Param =>
+        case TypeKind.ParamBox =>
           s"&$nativeType"
         case _ =>
           val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
@@ -1353,7 +1368,7 @@ object RustCompiler
       kind match {
         case TypeKind.RefCell =>
           s"Ref<$nativeType>"
-        case TypeKind.Param =>
+        case TypeKind.ParamBox =>
           s"pt::Ref<Box<$nativeType>>"
         case _ =>
           val byref = if (!RustTranslator.is_copy_type(dataType)) "&" else ""
@@ -1379,7 +1394,7 @@ object RustCompiler
           case None => types2class(t.name)
         }
 
-        NativeType(baseName, if (t.isOpaque) TypeKind.Param else TypeKind.Raw, attrType)
+        NativeType(baseName, if (t.isOpaque) TypeKind.ParamBox else TypeKind.Raw, attrType)
         // Because we can't predict if opaque types will recurse, we have to box them
 //        val typeName =
 //          if (!excludeBox && t.isOpaque)                    s"ParamType<Box<$baseName>>"
@@ -1410,7 +1425,7 @@ object RustCompiler
             kstructUnitName
         }
 
-        NativeType(typeName, TypeKind.Option, attrType)
+        NativeType(typeName, TypeKind.Param, attrType)
         //if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case KaitaiStreamType =>
