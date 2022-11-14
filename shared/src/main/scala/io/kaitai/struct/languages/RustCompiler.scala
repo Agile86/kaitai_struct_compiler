@@ -5,6 +5,7 @@ import io.kaitai.struct.datatype.DataType.{ReadableType, _}
 import io.kaitai.struct.datatype._
 import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.format._
+import io.kaitai.struct.languages.RustCompiler.TypeKind.TypeKind
 import io.kaitai.struct.languages.components._
 import io.kaitai.struct.translators.RustTranslator
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig}
@@ -455,8 +456,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         out.inc
         val nativeType = kaitaiTypeToNativeType( Some(EndianIdentifier),
                                         typeProvider.nowClass,
-                                        IntMultiType(signed = true, Width4, None))
-        out.puts(s"pub fn set_endian(&self, ${idToStr(EndianIdentifier)}: ${nativeType.attrType}) {")
+                                        IntMultiType(signed = true, Width4, None),
+                                        TypeKind.Raw)
+        out.puts(s"pub fn set_endian(&self, ${idToStr(EndianIdentifier)}: ${nativeType.nativeType}) {")
         out.inc
         handleAssignmentSimple(EndianIdentifier, s"${idToStr(EndianIdentifier)}")
         out.dec
@@ -746,8 +748,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             inst = true
           case _ =>
         }
-        case EndianIdentifier =>
-          inst = true
+//        case EndianIdentifier =>
+//          inst = true
         case _ =>
       }
       if (inst) {
@@ -1300,7 +1302,7 @@ object RustCompiler
 
   object TypeKind extends Enumeration {
     type TypeKind = Value
-    val Raw, Option, RefCell, Param, ParamBox = Value
+    val None, Raw, Option, RefCell, Param, ParamBox = Value
   }
 
   case class NativeType(nativeType: String, kind: TypeKind.Value, dataType: DataType) {
@@ -1379,14 +1381,16 @@ object RustCompiler
 
   def kaitaiTypeToNativeType(id: Option[Identifier],
                              cs: ClassSpec,
-                             attrType: DataType): NativeType = {
+                             attrType: DataType,
+                             advisedKind: TypeKind = TypeKind.None): NativeType = {
 //    def wrapRefCell(s: String): String =
 //      if (excludeRefCellWrapper || s.startsWith("ParamType<")) s else s"RefCell<$s>"
 
     attrType match {
       // TODO: Not exhaustive
       case _: NumericType | _: BooleanType | _: StrType | _: BytesType =>
-        NativeType(s"${kaitaiPrimitiveToNativeType(attrType)}", TypeKind.RefCell, attrType)
+        val typeKind = if (advisedKind != TypeKind.None) advisedKind else TypeKind.RefCell
+        NativeType(s"${kaitaiPrimitiveToNativeType(attrType)}", typeKind, attrType)
 
       case t: UserType =>
         val baseName = t.classSpec match {
@@ -1394,7 +1398,7 @@ object RustCompiler
           case None => types2class(t.name)
         }
 
-        NativeType(baseName, if (t.isOpaque) TypeKind.ParamBox else TypeKind.Raw, attrType)
+        NativeType(baseName, if (t.isOpaque) TypeKind.ParamBox else TypeKind.RefCell, attrType)
         // Because we can't predict if opaque types will recurse, we have to box them
 //        val typeName =
 //          if (!excludeBox && t.isOpaque)                    s"ParamType<Box<$baseName>>"
@@ -1412,7 +1416,7 @@ object RustCompiler
 
       case t: ArrayType =>
         val nativeType = kaitaiTypeToNativeType(id, cs, t.elType)
-        NativeType(s"Vec<${nativeType.attrType}>", TypeKind.RefCell, attrType)
+        NativeType(s"Vec<${nativeType.nativeType}>", TypeKind.RefCell, attrType)
         //wrapRefCell(s"Vec<${kaitaiTypeToNativeType(id, cs, t.elType, excludeOptionWrapper = true, excludeRefCellWrapper = true)}>")
 
       case _: SwitchType =>
