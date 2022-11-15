@@ -2,7 +2,7 @@ package io.kaitai.struct.translators
 
 import io.kaitai.struct.format._
 import io.kaitai.struct.datatype._
-import io.kaitai.struct.datatype.DataType._
+import io.kaitai.struct.datatype.DataType.{NumericType, StrType, _}
 import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.exprlang.Ast.expr
 import io.kaitai.struct.format.{Identifier, IoIdentifier, ParentIdentifier, RootIdentifier}
@@ -72,10 +72,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (memberFound.isDefined)
         memberFound.get match {
           case _: ValueInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)}, None)?"
+            s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
             //s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
-          case _: ParseInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)}, None)?.as_ref().unwrap()"
+          case pis: ParseInstanceSpec =>
+            pis.dataType match {
+              case _: NumericType | _: StrType | _: UserTypeInstream =>
+                s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
+              case _ =>
+                s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?.as_ref().unwrap()"
+            }
           case _ =>
             s"$s()"
         }
