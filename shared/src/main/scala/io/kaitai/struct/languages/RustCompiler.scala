@@ -6,6 +6,7 @@ import io.kaitai.struct.datatype._
 import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.format._
 import io.kaitai.struct.languages.RustCompiler.TypeKind.TypeKind
+import io.kaitai.struct.languages.RustCompiler.idToStr
 import io.kaitai.struct.languages.components._
 import io.kaitai.struct.translators.RustTranslator
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig}
@@ -218,15 +219,15 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def attributeReader(attrName: Identifier,
                                attrType: DataType,
                                isNullable: Boolean): Unit = {
-     val nativeType = attrName match {
-      // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
-      case IoIdentifier | RootIdentifier | ParentIdentifier => return
-      case _ =>
-        kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
-    }
+    val nativeType = attrName match {
+          // For keeping lifetimes simple, we don't store _io, _root, or _parent with the struct
+          case IoIdentifier | RootIdentifier | ParentIdentifier => return
+          case _ =>
+            kaitaiTypeToNativeTypeWrapper(Some(attrName), attrType)
+        }
+    val className = classTypeName(typeProvider.nowClass)
 
-    out.puts(
-      s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
+    out.puts(s"impl<$readLife, $streamLife: $readLife> $className {")
     out.inc
 
     var types : Set[DataType] = Set()
@@ -469,6 +470,13 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     }
     out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
+    out.puts(
+      s"""|fn get_root<'a>(&'a self, _root: Option<&'a ${type2class(className(0))}>) -> Option<&'a ${type2class(className(0))}> {
+          |        match _root  {
+          |            Some(_p) => _root,
+          |            None => Some(self._root.as_ref().unwrap().as_ref()),
+          |        }
+          |    }""".stripMargin)
   }
 
   override def universalFooter: Unit = {
@@ -753,8 +761,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         case _ =>
       }
       if (inst) {
-        done = true
-        out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
+        val member = translator.findMember(idToStr(id))
+        if (member.isDefined) {
+          val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, member.get.dataTypeComposite)
+          if (nativeType.kind == TypeKind.ParamBox) {
+            done = true
+            out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
+          }
+        }
       }
     }
     if (!done)
@@ -819,7 +833,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"$baseName"
         }
         val addArgs = if (t.isOpaque) {
-          ", None, None"
+          ", self.get_root(_root), None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
           val root = if (typeProvider.nowClass.isTopLevel) {
