@@ -72,11 +72,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (memberFound.isDefined)
         memberFound.get match {
           case _: ValueInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
+            s"$s(${privateMemberName(IoIdentifier)}, None)?"
             //s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
           case pis: ParseInstanceSpec =>
             pis.dataType match {
-              case _: NumericType | _: StrType | _: UserTypeInstream =>
+              case _: NumericType | _: StrType /*| _: UserTypeInstream*/ =>
                 s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
               case _ =>
                 s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?.as_ref().unwrap()"
