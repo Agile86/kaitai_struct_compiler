@@ -119,7 +119,7 @@ class RustClassCompiler(
         lang.attrParse(i, instName, None) // FIXME
     }
 
-    //lang.instanceSetCalculated(instName)
+    lang.instanceSetCalculated(instName)
     lang.instanceReturn(instName, dataType)
     lang.instanceFooter
   }
