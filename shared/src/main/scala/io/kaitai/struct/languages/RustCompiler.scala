@@ -471,7 +471,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
     out.puts(
-      s"""|fn get_root<'a>(&'a self, _root: Option<&'a ${type2class(className(0))}>) -> Option<&'a ${type2class(className(0))}> {
+      s"""|fn get_root<'a>(&'a self, _root: Option<&'a ${type2class(className.head)}>) -> Option<&'a ${type2class(className.head)}> {
           |        match _root  {
           |            Some(_p) => _root,
           |            None => Some(self._root.as_ref().unwrap().as_ref()),
@@ -833,7 +833,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"$baseName"
         }
         val addArgs = if (t.isOpaque) {
-          ", self.get_root(_root), None"
+          ", None, None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
           val root = if (typeProvider.nowClass.isTopLevel) {
