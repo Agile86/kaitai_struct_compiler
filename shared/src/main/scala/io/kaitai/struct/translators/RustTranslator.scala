@@ -71,12 +71,21 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       val memberFound = findMember(s)
       if (memberFound.isDefined)
         memberFound.get match {
-          case _: ValueInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)}, None)?"
+          case vis: ValueInstanceSpec =>
+            val call = s"$s(${privateMemberName(IoIdentifier)}, None)?"
+            vis.dataTypeOpt match {
+              case Some(dt) =>
+                dt match {
+                  case _: StrType =>
+                    s"$call.as_str()"
+                  case _ =>
+                    call
+                }
+            }
           case as: AttrSpec =>
             as.dataType match {
               case _: StrType =>
-                s"$s().clone()"
+                s"$s().as_str()"
               case _ =>
                 s"$s()"
             }
@@ -330,7 +339,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${RustCompiler.types2class(enumTypeAbs)}::${Utils.upperCamelCase(label)}"
 
   override def doStrCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    s"${ensure_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}.to_string()"
+    s"${remove_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}"
   }
 
   override def doEnumById(enumTypeAbs: List[String], id: String): String =
