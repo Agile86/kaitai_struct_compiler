@@ -558,8 +558,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.clone();")
       case _: StrType =>
         val str = translator.remove_deref(expression(value))
-        val subst = if (value.isInstanceOf[Ast.expr.Str]) s"$str.to_string()" else str
-        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = $subst;")
+//        val subst = if (value.isInstanceOf[Ast.expr.Str]) s"$str.to_string()" else str
+        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = $str.to_string();")
       case _: BytesType =>
         out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.rem_vec_amp(translator.remove_deref(expression(value)))}.to_vec();")
       case _: ArrayType =>
