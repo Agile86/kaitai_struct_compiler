@@ -83,12 +83,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 }
             }
           case as: AttrSpec =>
-            as.dataType match {
-              case _: StrType =>
-                s"$s().as_str()"
-              case _ =>
-                s"$s()"
-            }
+            var code = s"$s()"
+            if (!as.isArray && as.dataType.isInstanceOf[StrType])
+              code = s"$code.as_str()"
+            code
           case pis: ParseInstanceSpec =>
             pis.dataType match {
               case _: NumericType | _: StrType =>
@@ -296,7 +294,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     } else {
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
-        deref = true //is_copy_type(found.get.dataTypeComposite)
+        deref = is_copy_type(found.get.dataTypeComposite)
       } else {
         found = get_param(get_top_class(provider.nowClass), s)
         if (found.isDefined) {
@@ -319,7 +317,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ =>
       val n = doName(s)
       val deref = need_deref(s)
-      if (context_need_deref_attr || deref) {
+      if (/*context_need_deref_attr ||*/ deref) {
         s"*self.$n"
       } else {
         s"self.$n"
