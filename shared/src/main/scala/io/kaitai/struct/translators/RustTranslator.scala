@@ -290,11 +290,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     var deref = false
     var found = get_attr(get_top_class(provider.nowClass), s)
     if (found.isDefined ) {
-      deref = is_copy_type(found.get.dataTypeComposite)
+      val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
+      deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
     } else {
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
-        deref = is_copy_type(found.get.dataTypeComposite)
+        val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
+        deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
       } else {
         found = get_param(get_top_class(provider.nowClass), s)
         if (found.isDefined) {
@@ -316,7 +318,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)
-      val deref = need_deref(s)
+      val deref = !n.endsWith(".as_str()") && need_deref(s)
       if (/*context_need_deref_attr ||*/ deref) {
         s"*self.$n"
       } else {
@@ -416,7 +418,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     if (bytesExpr.charAt(0) == '*') {
       s"decode_string(&$bytesExpr, &${translate(encoding)})?"
     } else {
-      s"decode_string(${bytesExpr.replace(".to_vec()", "")}, &${translate(encoding)})?"
+      val subst = bytesExpr.replace(".to_vec()", "")
+                           .replace("None)?", "None)?.as_slice()")
+      s"decode_string($subst, &${translate(encoding)})?"
     }
   }
 
@@ -482,7 +486,7 @@ object RustTranslator {
     case _: BytesType => false
     case _: ArrayType => false
     case _: StrType => false
-    case _: EnumType => false
+//    case _: EnumType => false
     case _ => true
   }
 
