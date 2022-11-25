@@ -83,10 +83,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 }
             }
           case as: AttrSpec =>
-            var code = s"$s()"
-            if (!as.isArray && as.dataType.isInstanceOf[StrType])
-              code = s"$code.as_str()"
-            code
+            val code = s"$s()"
+            val aType = RustCompiler.kaitaiPrimitiveToNativeType(as.dataType)
+            aType match {
+              case "String" => s"$code.as_str()"
+              case "Vec<u8>" => s"$code.as_slice()"
+              case _ => code
+            }
           case pis: ParseInstanceSpec =>
             pis.dataType match {
               case _: NumericType | _: StrType =>
@@ -179,20 +182,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
     val a = doName(attrName)
-    var r = ""
-
-//    val attr = findMember(attrName)
-//    if (attr.isDefined) {
-//      val attrType = attr.get.dataTypeComposite
-//      attrType match {
-//        case _: NumericType =>
-//          r = s"*$t.$a"
-//        case _: UserTypeInstream =>
-//          r = s"$t.$a.as_deref().unwrap()"
-//        case _ =>
-//      }
-//    }
-
+    val nativeType = getNativeType(attrName)
+    var r = nativeType.kind match {
+      case TypeKind.RefCell => s"${ensure_deref(t)}.$a"
+      case TypeKind.Raw     => s"${remove_deref(t)}.$a"
+      case TypeKind.Param   => s"${remove_deref(t)}.$a"
+      case TypeKind.ParamBox=> s"${ensure_deref(t)}.$a"
+      case TypeKind.Option  => s"${remove_deref(t)}.$a"
+      case TypeKind.None    => ???
+    }
+/*
     if (r.isEmpty) {
       if (need_deref(attrName)) {
         if (t.charAt(0) == '*') {
@@ -208,6 +207,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         }
       }
     }
+*/
 
     attrName match {
       case Identifier.IO =>
@@ -284,14 +284,22 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     found
   }
 
+  def getNativeType(s: String): NativeType = {
+    val spec = findMember(s)
+    if (spec.isDefined) {
+      RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, spec.get.dataType)
+    } else {
+      NativeType("", TypeKind.None, null)
+    }
+  }
+
   var context_need_deref_attr = false
 
   def need_deref(s: String): Boolean = {
     var deref = false
     var found = get_attr(get_top_class(provider.nowClass), s)
     if (found.isDefined ) {
-      val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
-      deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
+      deref = is_copy_type(found.get.dataTypeComposite)
     } else {
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
@@ -339,7 +347,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${RustCompiler.types2class(enumTypeAbs)}::${Utils.upperCamelCase(label)}"
 
   override def doStrCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    s"${remove_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}"
+    val l = remove_deref(translate(left))
+    val r = remove_deref(translate(right))
+    val asStr = if (l.endsWith(".as_str()") && r.endsWith(")?")) ".as_str()" else ""
+    s"$l ${cmpOp(op)} $r$asStr"
   }
 
   override def doEnumById(enumTypeAbs: List[String], id: String): String =
