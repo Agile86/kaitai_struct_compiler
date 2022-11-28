@@ -84,10 +84,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             }
           case as: AttrSpec =>
             val code = s"$s()"
-            val aType = RustCompiler.kaitaiPrimitiveToNativeType(as.dataType)
+            val aType = RustCompiler.kaitaiPrimitiveToNativeType(as.dataTypeComposite)
             aType match {
               case "String" => s"$code.as_str()"
-              case "Vec<u8>" => s"$code.as_slice()"
+              //case "Vec<u8>" => s"$code.as_slice()"
               case _ => code
             }
           case pis: ParseInstanceSpec =>
@@ -299,7 +299,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     var deref = false
     var found = get_attr(get_top_class(provider.nowClass), s)
     if (found.isDefined ) {
-      deref = is_copy_type(found.get.dataTypeComposite)
+      val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
+      deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
     } else {
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
