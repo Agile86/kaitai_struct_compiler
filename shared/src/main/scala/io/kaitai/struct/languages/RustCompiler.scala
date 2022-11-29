@@ -298,21 +298,17 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                    dataType: DataType): Unit = {
     out.puts("{")
     out.inc
-    out.puts(s"let mut _i = 0;")
+    out.puts(s"let _i = RefCell::new(0);")
     out.puts(s"while !_io.is_eof() {")
     out.inc
   }
 
   override def handleAssignmentRepeatEos(id: Identifier, expr: String): Unit = {
-//    if (in_instance) {
-      out.puts(s"${privateMemberName(id)}.borrow_mut().push($expr);")
-//    } else {
-//      out.puts(s"${privateMemberName(id)}.push($expr);")
-//    }
+    out.puts(s"${privateMemberName(id)}.borrow_mut().push($expr);")
   }
 
   override def condRepeatEosFooter: Unit = {
-    out.puts("_i += 1;")
+    out.puts("*_i.borrow_mut() += 1;")
     out.dec
     out.puts("}")
     out.dec
@@ -325,7 +321,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                     repeatExpr: Ast.expr): Unit = {
     val lenVar = s"l_${idToStr(id)}"
     out.puts(s"let $lenVar = ${expression(repeatExpr)};")
-    out.puts(s"for _i in 0..$lenVar {")
+    out.puts(s"let _i = RefCell::new(0);")
+    out.puts(s"while *_i.borrow() < $lenVar {")
     out.inc
   }
 
@@ -821,10 +818,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               if ((nativeType.kind != TypeKind.ParamBox) && !RustTranslator.is_copy_type(typ))
                 byref = "&"
           }
-          var need_deref = ""
-          if (nativeType.kind == TypeKind.RefCell)
-            need_deref = "&*"
-          s"$byref$need_deref${translator.translate(a)}$try_into"
+          s"$byref${translator.translate(a)}$try_into"
         }, "", ", ", "")
         val userType = t match {
           case t: UserType =>
