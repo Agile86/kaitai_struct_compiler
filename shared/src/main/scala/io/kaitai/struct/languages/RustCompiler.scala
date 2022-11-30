@@ -298,7 +298,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                    dataType: DataType): Unit = {
     out.puts("{")
     out.inc
-    out.puts(s"let _i = RefCell::new(0);")
+    out.puts(s"let mut _i = 0;")
     out.puts(s"while !_io.is_eof() {")
     out.inc
   }
@@ -308,7 +308,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def condRepeatEosFooter: Unit = {
-    out.puts("*_i.borrow_mut() += 1;")
+    out.puts("_i += 1;")
     out.dec
     out.puts("}")
     out.dec
@@ -321,8 +321,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                     repeatExpr: Ast.expr): Unit = {
     val lenVar = s"l_${idToStr(id)}"
     out.puts(s"let $lenVar = ${expression(repeatExpr)};")
-    out.puts(s"let _i = RefCell::new(0);")
-    out.puts(s"while *_i.borrow() < $lenVar {")
+    out.puts(s"for _i in 0..$lenVar {")
     out.inc
   }
 
@@ -432,7 +431,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     if (typeProvider.nowClass.params.nonEmpty) {
       val paramsArg = Utils.join(typeProvider.nowClass.params.map { p =>
         val n = paramName(p.id)
-        val nativeType = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType)
+        val advisedKind = p.dataType match {
+          case _: NumericType => TypeKind.Raw
+          case _              => TypeKind.None
+        }
+        val nativeType = kaitaiTypeToNativeType(Some(p.id), typeProvider.nowClass, p.dataType, advisedKind)
         // generate param access helper
         attributeReader(p.id, p.dataType, isNullable = false)
         s"$n: ${nativeType.paramType}"
@@ -1120,6 +1123,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"$enum_typeName::$variantName(v) => *v as usize,")
         }
       })
+      out.puts(s"""$enum_typeName::__NOT_INITED__ => panic!("trying to convert from enum $enum_typeName::__NOT_INITED__ to usize"),""")
       out.dec
       out.puts("}")
       out.dec
