@@ -81,6 +81,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                   case _ =>
                     call
                 }
+              case None =>
+                call
             }
           case as: AttrSpec =>
             val code = s"$s()"
@@ -184,7 +186,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val a = doName(attrName)
     val nativeType = getNativeType(attrName)
     var r = nativeType.kind match {
-      case TypeKind.RefCell => s"${ensure_deref(t)}.$a"
+      case TypeKind.RefCell => s"*${ensure_deref(t)}.$a"
       case TypeKind.Raw     => s"${remove_deref(t)}.$a"
       case TypeKind.Param   => s"${remove_deref(t)}.$a"
       case TypeKind.ParamBox=> s"${ensure_deref(t)}.$a"
@@ -321,7 +323,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doLocalName(s: String): String = s match {
     case Identifier.ITERATOR => "_tmpa"
     case Identifier.ITERATOR2 => "_tmpb"
-    case Identifier.INDEX => "_i.borrow()"
+    case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
     case Identifier.ROOT => s"self.${RustCompiler.privateMemberName(RootIdentifier)}.as_ref().unwrap().as_ref()"
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
