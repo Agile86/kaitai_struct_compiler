@@ -114,15 +114,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   def findMember(attrName: String): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
-      inClass.seq.foreach { el =>
-        if (el.id == NamedIdentifier(attrName))
-          return Some(el)
-      }
+      val attr = inClass.seq.find(el => el.id == NamedIdentifier(attrName))
+      if (attr.isDefined)
+        return attr
 
-      inClass.params.foreach { el =>
-        if (el.id == NamedIdentifier(attrName))
-          return Some(el)
-      }
+      val param = inClass.params.find (el => el.id == NamedIdentifier(attrName))
+      if (param.isDefined)
+        return param
 
       val inst = inClass.instances.get(InstanceIdentifier(attrName))
       if (inst.isDefined)
@@ -183,16 +181,27 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
-    val a = doName(attrName)
-    val nativeType = getNativeType(attrName)
-    var r = nativeType.kind match {
-      case TypeKind.RefCell => s"*${ensure_deref(t)}.$a"
-      case TypeKind.Raw     => s"${remove_deref(t)}.$a"
-      case TypeKind.Param   => s"${remove_deref(t)}.$a"
-      case TypeKind.ParamBox=> s"${ensure_deref(t)}.$a"
-      case TypeKind.Option  => s"${remove_deref(t)}.$a"
-      case TypeKind.None    => ???
+    var checkDeref = true
+    val a = attrName match {
+      case "size" | "is_eof" | "pos" =>
+        checkDeref = false
+        s"$attrName()"
+      case _ =>
+        doName(attrName)
     }
+
+    var r = if (checkDeref) { val nativeType = getNativeType(attrName)
+                              nativeType.kind match {
+                                case TypeKind.RefCell => s"${ensure_deref(t, onlySelf = false)}.$a"
+                                case TypeKind.Raw => s"${remove_deref(t)}.$a"
+                                case TypeKind.Param => s"${remove_deref(t)}.$a"
+                                case TypeKind.ParamBox => s"${ensure_deref(t, onlySelf = false)}.$a"
+                                case TypeKind.Option => s"${remove_deref(t)}.$a"
+                                case TypeKind.None => ???
+                              }
+                            } else {
+                              s"$t.$a"
+                            }
 /*
     if (r.isEmpty) {
       if (need_deref(attrName)) {
@@ -238,9 +247,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
-  def ensure_deref(s: String): String = {
-    if (s.startsWith("self")) {
-      s"*$s"
+  def ensure_deref(s: String, onlySelf: Boolean = true): String = {
+    if (s.startsWith("self") || !onlySelf) {
+      if (s.charAt(0) != '*') {
+        s"*$s"
+      } else {
+        s
+      }
     } else {
       s
     }
