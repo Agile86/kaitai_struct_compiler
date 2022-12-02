@@ -176,7 +176,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val t = translate(value)
     var checkDeref = true
     val a = attrName match {
-      case "size" | "is_eof" | "pos" =>
+      case "size" | "is_eof" | "pos" | "_io" =>
         checkDeref = false
         s"$attrName()"
       case _ =>
