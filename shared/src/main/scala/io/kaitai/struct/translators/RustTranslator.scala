@@ -89,7 +89,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             val aType = RustCompiler.kaitaiPrimitiveToNativeType(as.dataTypeComposite)
             aType match {
               case "String" => s"$code.as_str()"
-              //case "Vec<u8>" => s"$code.as_slice()"
+              case "Vec<u8>" => s"$code.as_slice()"
               case _ => code
             }
           case pis: ParseInstanceSpec =>
@@ -114,24 +114,19 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   def findMember(attrName: String): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
-      val attr = inClass.seq.find(el => el.id == NamedIdentifier(attrName))
-      if (attr.isDefined)
-        return attr
+      for { attr <- inClass.seq.find(_.id == NamedIdentifier(attrName)) }
+        return Some(attr)
 
-      val param = inClass.params.find (el => el.id == NamedIdentifier(attrName))
-      if (param.isDefined)
-        return param
+      for { param <- inClass.params.find (_.id == NamedIdentifier(attrName)) }
+        return Some(param)
 
-      val inst = inClass.instances.get(InstanceIdentifier(attrName))
-      if (inst.isDefined)
-        return inst
+      for { inst <- inClass.instances.get(InstanceIdentifier(attrName)) }
+        return Some(inst)
 
       inClass.types.foreach{ t =>
-        val found = findInClass(t._2)
-        if (found.isDefined)
-          return found
+        for { found <- findInClass(t._2) }
+          return Some(found)
       }
-
       None
     }
 
@@ -139,14 +134,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case Identifier.PARENT | Identifier.IO =>
         None
       case _ =>
-        val ms = findInClass(provider.nowClass)
-        if (ms.isDefined)
-          return ms
+        for { ms <- findInClass(provider.nowClass) }
+          return Some(ms)
 
         provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
-          val ms = findInClass(cls._2)
-          if (ms.isDefined)
-            return ms
+          for { ms <- findInClass(cls._2) }
+            return Some(ms)
         }
         None
     }
@@ -315,7 +308,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     var found = get_attr(get_top_class(provider.nowClass), s)
     if (found.isDefined ) {
       val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
-      deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
+      deref = if (nativeType.kind == TypeKind.RefCell) {
+        nativeType.nativeType != "Vec<u8>"
+      } else {
+        is_copy_type(found.get.dataTypeComposite)
+      }
     } else {
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
