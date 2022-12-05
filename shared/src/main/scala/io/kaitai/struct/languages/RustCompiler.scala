@@ -12,6 +12,7 @@ import io.kaitai.struct.translators.RustTranslator
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig}
 
 import scala.annotation.tailrec
+import scala.collection.convert.ImplicitConversions.`list asScalaBuffer`
 
 class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   extends LanguageCompiler(typeProvider, config)
@@ -61,6 +62,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     )
     importList.add("use std::convert::{TryFrom, TryInto};")
     importList.add("use std::cell::{Ref, Cell, RefCell};")
+    importList.add("use std::rc::{Rc, Weak};")
 
     typeProvider.allClasses.foreach{
       case (name, _) =>
@@ -77,7 +79,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def classHeader(name: List[String]): Unit = {
     val className = classTypeName(typeProvider.nowClass)
     out.puts
-    out.puts("#[derive(Default, Debug, PartialEq, Clone)]")
+    out.puts("#[derive(Default, Debug, Clone)]")
     out.puts(s"pub struct $className {")
     out.inc
 
@@ -85,7 +87,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // everyone gets a phantom data marker
     //out.puts(s"_phantom: std::marker::PhantomData<&$streamLife ()>,")
 
-    out.puts(s"${privateMemberName(RootIdentifier)}: ParamType<Box<${types2class(name.slice(0, 1))}>>,")
+    out.puts(s"pub ${privateMemberName(RootIdentifier)}: RefCell<Weak<${types2class(name.slice(0, 1))}>>,")
 
     typeProvider.nowClass.params.foreach { p =>
       // Make sure the parameter is imported if necessary
@@ -160,7 +162,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"&self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S,")
     out.puts(
-      s"${privateMemberName(RootIdentifier)}: Option<&$readLife Self::Root>,"
+      s"${privateMemberName(RootIdentifier)}: Rc<Self::Root>,"
     )
     out.puts(
       s"${privateMemberName(ParentIdentifier)}: Option<TypedStack<Self::ParentStack>>,"
@@ -169,15 +171,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s") -> KResult<()> {")
     out.inc
 
-    if (translator.provider.nowClass.name.size == 1) {
-      out.puts(
-        s"""*self.${privateMemberName(RootIdentifier)}.borrow_mut() = match _root  {
-           |            None => Some(Box::new(self.clone())),
-           |            Some(p) => Some(Box::new(p.clone())),
-           |        };""".stripMargin)
-    } else {
-      out.puts("*self._root.borrow_mut() = Some(Box::new(_root.unwrap().clone()));")
-    }
+    val root = privateMemberName(RootIdentifier)
+    out.puts(s"""*self.$root.borrow_mut() = Rc::downgrade(&$root.clone());""")
 
     // If there aren't any attributes to parse, we need to end the read implementation here
     if (typeProvider.nowClass.seq.isEmpty)
@@ -408,7 +403,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def useIO(ioEx: Ast.expr): String = {
-    out.puts(s"let io = BytesReader::new(&${expression(ioEx)});")
+    val expr = expression(ioEx)
+    val lines = expr.lines().toList
+    val n = lines.size()
+    if (n == 1) {
+      out.puts(s"let x = $expr;")
+    } else {
+      lines.take(n - 1).foreach(out.puts(_))
+      out.puts(s"let x = ${lines.last};")
+    }
+    out.puts(s"let io = BytesReader::new(x);")
     "io"
   }
 
@@ -470,13 +474,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     }
     out.puts(s"impl<$readLife, $streamLife: $readLife> ${classTypeName(typeProvider.nowClass)} {")
     out.inc
-    out.puts(
-      s"""|fn get_root<'a>(&'a self, _root: Option<&'a ${type2class(className.head)}>) -> Option<&'a ${type2class(className.head)}> {
-          |        match _root  {
-          |            Some(_p) => _root,
-          |            None => Some(self._root.as_ref().unwrap().as_ref()),
-          |        }
-          |    }""".stripMargin)
   }
 
   override def universalFooter: Unit = {
@@ -534,7 +531,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.inc
     out.puts("&self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S,")
-    out.puts(s"${privateMemberName(RootIdentifier)}: Option<&${classTypeName(typeProvider.topClass)}>")
+    out.puts(s"${privateMemberName(RootIdentifier)}: Rc<${classTypeName(typeProvider.topClass)}>")
     out.dec
     val nativeType = kaitaiTypeToNativeType(Some(instName), typeProvider.nowClass, dataType)
     out.puts(s") -> KResult<${nativeType.resType}> {")
@@ -835,11 +832,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           ", None, None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
-          val root = if (typeProvider.nowClass.isTopLevel) {
-            "Some(self)"
-          } else {
-            privateMemberName(RootIdentifier)
-          }
+          val root = s"(*self.${privateMemberName(RootIdentifier)}.borrow()).upgrade().unwrap()"
           val parent = t.forcedParent match {
             case Some(USER_TYPE_NO_PARENT) => "None"
             case Some(fp) => translator.translate(fp)
