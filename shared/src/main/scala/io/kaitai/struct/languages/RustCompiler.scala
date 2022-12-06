@@ -334,12 +334,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def handleAssignmentRepeatUntil(id: Identifier,
                                            expr: String,
                                            isRaw: Boolean): Unit = {
-    out.puts(s"${privateMemberName(id)}.push($expr);")
+    out.puts(s"${privateMemberName(id)}.borrow_mut().push($expr);")
     var copy_type = ""
     if (typeProvider._currentIteratorType.isDefined && RustTranslator.is_copy_type(typeProvider._currentIteratorType.get)) {
       copy_type = "*"
     }
-    out.puts(s"let ${translator.doLocalName(Identifier.ITERATOR)} = $copy_type${privateMemberName(id)}.last().unwrap();")
+    out.puts(s"let ${translator.doLocalName(Identifier.ITERATOR)} = $copy_type${privateMemberName(id)}.borrow().last().unwrap();")
   }
 
   override def condRepeatUntilFooter(id: Identifier,
@@ -378,14 +378,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             ???
         }
       case ProcessZlib =>
-        s"S::process_zlib(&$srcExpr)"
+        s"S::process_zlib($srcExpr.borrow().as_slice())"
       case ProcessRotate(isLeft, rotValue) =>
         val expr = if (isLeft) {
           expression(rotValue)
         } else {
           s"8 - (${expression(rotValue)})"
         }
-        s"S::process_rotate_left(&$srcExpr, $expr)"
+        s"S::process_rotate_left($srcExpr.borrow().as_slice(), $expr)"
       case ProcessCustom(name, args) =>
         val procClass = name.map(x => type2class(x)).mkString("::")
         val procName = s"_process_${idToStr(varSrc)}"
@@ -959,16 +959,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def switchIfStart(id: Identifier, on: Ast.expr, onType: DataType): Unit = {
     out.puts("{")
     out.inc
-    out.puts(s"let on = &${expression(on)};")
+    out.puts(s"let on = ${expression(on)};")
   }
 
   override def switchIfCaseFirstStart(condition: Ast.expr): Unit = {
-    out.puts(s"if on.as_slice() == ${expression(condition)} {")
+    out.puts(s"if on == ${expression(condition)} {")
     out.inc
   }
 
   override def switchIfCaseStart(condition: Ast.expr): Unit = {
-    out.puts(s"else if on.as_slice() == ${expression(condition)} {")
+    out.puts(s"else if on == ${expression(condition)} {")
     out.inc
   }
 
@@ -1011,7 +1011,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let $ids = $newStreamRaw.borrow();")
           newStreamRaw = ids
         }
-        out.puts(s"let slice_holder = &$newStreamRaw.last().borrow()[..];")
+        out.puts(s"let slice_holder = &$newStreamRaw.borrow().last().unwrap()[..];")
         out.puts(s"let $localIO = BytesReader::new(slice_holder);")
         s"&$localIO"
     }

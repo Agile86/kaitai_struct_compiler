@@ -16,9 +16,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   import RustCompiler._
 
   override def doByteArrayLiteral(arr: Seq[Byte]): String =
-    "&vec![" + arr.map(x => "%0#2xu8".format(x & 0xff)).mkString(", ") + "]"
+    "vec![" + arr.map(x => "%0#2xu8".format(x & 0xff)).mkString(", ") + "].as_slice()"
   override def doByteArrayNonLiteral(elts: Seq[Ast.expr]): String =
-    "&vec![" + elts.map(translate).mkString(", ") + "]"
+    "vec![" + elts.map(translate).mkString(", ") + "].as_slice()"
   override def doArrayLiteral(t: DataType, value: Seq[Ast.expr]): String = {
     t match {
       case CalcStrType => "vec![" + value.map(v => translate(v)).mkString(".to_string(), ") + ".to_string()]"
@@ -195,7 +195,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       } else {
         val nativeType = getNativeType(attrName)
         nativeType.kind match {
-          case TypeKind.RefCell => s"${ensure_deref(t, onlySelf = false)}.$a"
+          case TypeKind.RefCell =>
+            nativeType.nativeType match {
+              case "Vec<u8>" => s"${remove_deref(t)}.$a"
+              case _ => s"${ensure_deref(t, onlySelf = false)}.$a"
+            }
           case TypeKind.Raw => s"${remove_deref(t)}.$a"
           case TypeKind.Param => s"${remove_deref(t)}.$a"
           case TypeKind.ParamBox => s"${ensure_deref(t, onlySelf = false)}.$a"
