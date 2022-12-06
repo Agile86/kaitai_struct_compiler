@@ -970,12 +970,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def switchIfCaseFirstStart(condition: Ast.expr): Unit = {
-    out.puts(s"if on.as_slice() == ${expression(condition)} {")
+    out.puts(s"if &on == ${expression(condition)} {")
     out.inc
   }
 
   override def switchIfCaseStart(condition: Ast.expr): Unit = {
-    out.puts(s"else if on.as_slice() == ${expression(condition)} {")
+    out.puts(s"else if &on == ${expression(condition)} {")
     out.inc
   }
 
