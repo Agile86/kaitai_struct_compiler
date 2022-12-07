@@ -189,7 +189,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
     var r = if (checkDeref) {
       if (value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == idToStr(RootIdentifier))) {
-        s"""|let x = $t;
+        s"""|let x = $t;    //"note: consider using a `let` binding to create a longer lived value"
             |let x = x.$a;
             |x""".stripMargin
       } else {
