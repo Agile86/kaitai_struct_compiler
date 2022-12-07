@@ -801,7 +801,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?"
       case b: BytesLimitType =>
         result = "t.to_vec()"
-        s"$io.read_bytes(${expression(b.size)} as usize)?"
+        val lines = expression(b.size).lines().toList
+        lines.take(lines.size() - 1).foreach(out.puts(_))
+        out.puts(s"let x = ${lines.last};")
+        s"$io.read_bytes(x as usize)?"
       case BitsType1(bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}(1)? != 0"
       case BitsType(width: Int, bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}($width)?"
       case t: UserType =>
