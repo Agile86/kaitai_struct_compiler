@@ -449,7 +449,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"decode_string(&$bytesExpr, &${translate(encoding)})?"
     } else {
       val subst = bytesExpr.replace(".to_vec()", "")
-                           .replace("None)?", "None)?.as_slice()")
+                           .replace("None)?", "None)?")
       s"decode_string($subst, &${translate(encoding)})?"
     }
   }
