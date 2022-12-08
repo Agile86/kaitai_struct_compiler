@@ -76,13 +76,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             vis.dataTypeOpt match {
               case Some(dt) =>
                 dt match {
-                  case _: StrType =>
-                    s"$call.as_str()"
-                  case _ =>
-                    call
+                  case _: StrType => s"$call.as_str()"
+                  case _: BytesType => s"$call.as_slice()"
+                  case _ => call
                 }
-              case None =>
-                call
+              case None => call
             }
           case as: AttrSpec =>
             val code = s"$s()"
@@ -321,7 +319,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
         val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
-        deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
+        deref = if (nativeType.kind == TypeKind.RefCell) {
+          nativeType.nativeType != "Vec<u8>"
+        } else {
+          is_copy_type(found.get.dataTypeComposite)
+        }
       } else {
         found = get_param(get_top_class(provider.nowClass), s)
         if (found.isDefined) {
