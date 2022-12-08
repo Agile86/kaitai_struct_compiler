@@ -404,8 +404,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def useIO(ioEx: Ast.expr): String = {
     val expr = expression(ioEx)
-    val lines = expr.lines().toList
-    val n = lines.size()
+    val lines = expr.lines.toList
+    val n = lines.size
     if (n == 1) {
       out.puts(s"let x = $expr;")
     } else {
@@ -801,8 +801,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?"
       case b: BytesLimitType =>
         result = "t.to_vec()"
-        val lines = expression(b.size).lines().toList
-        lines.take(lines.size() - 1).foreach(out.puts(_))
+        val lines = expression(b.size).lines.toList
+        lines.take(lines.size - 1).foreach(out.puts(_))
         out.puts(s"let x = ${lines.last};")
         s"$io.read_bytes(x as usize)?"
       case BitsType1(bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}(1)? != 0"
