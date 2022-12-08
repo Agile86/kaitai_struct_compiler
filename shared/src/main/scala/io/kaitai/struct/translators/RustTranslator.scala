@@ -112,14 +112,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   def findMember(attrName: String): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
-      for { attr <- inClass.seq.find(_.id == NamedIdentifier(attrName)) }
-        return Some(attr)
 
-      for { param <- inClass.params.find (_.id == NamedIdentifier(attrName)) }
-        return Some(param)
+      inClass.seq.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
 
-      for { inst <- inClass.instances.get(InstanceIdentifier(attrName)) }
-        return Some(inst)
+      inClass.params.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
+
+      inClass.instances.foreach { case (instName, instSpec) =>
+        if (idToStr(instName) == attrName) {
+          return Some(instSpec)
+        }
+      }
 
       inClass.types.foreach{ t =>
         for { found <- findInClass(t._2) }
