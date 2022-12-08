@@ -315,7 +315,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                     dataType: DataType,
                                     repeatExpr: Ast.expr): Unit = {
     val lenVar = s"l_${idToStr(id)}"
-    out.puts(s"let $lenVar = ${expression(repeatExpr)};")
+    val expr = expression(repeatExpr)
+    val deref = if (expr.charAt(0) == '*') "*" else ""
+    val lines = (if (!deref.isEmpty) expr.substring(1) else expr).lines.toList
+    lines.take(lines.size - 1).foreach(out.puts(_))
+    out.puts(s"let $lenVar = $deref${lines.last};")
     out.puts(s"for _i in 0..$lenVar {")
     out.inc
   }
@@ -801,9 +805,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?"
       case b: BytesLimitType =>
         result = "t.to_vec()"
-        val lines = expression(b.size).lines.toList
+        val expr = expression(b.size)
+        val deref = if (expr.charAt(0) == '*') "*" else ""
+        val lines = (if (!deref.isEmpty) expr.substring(1) else expr).lines.toList
         lines.take(lines.size - 1).foreach(out.puts(_))
-        out.puts(s"let x = ${lines.last};")
+        out.puts(s"let x = $deref${lines.last};")
         s"$io.read_bytes(x as usize)?"
       case BitsType1(bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}(1)? != 0"
       case BitsType(width: Int, bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}($width)?"
