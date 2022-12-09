@@ -72,7 +72,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (memberFound.isDefined)
         memberFound.get match {
           case vis: ValueInstanceSpec =>
-            val call = s"$s(${privateMemberName(IoIdentifier)}, None)?"
+            val call = s"$s(${privateMemberName(IoIdentifier)}, ${doLocalName(idToStr(RootIdentifier))})?"
             vis.dataTypeOpt match {
               case Some(dt) =>
                 dt match {
@@ -196,7 +196,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
     var r = if (checkDeref) {
-      if (value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == idToStr(RootIdentifier))) {
+      if (RustTranslator.isRoot(value)) {
         s"""|let x = $t;    //"note: consider using a `let` binding to create a longer lived value"
             |let x = x.$a;
             |x""".stripMargin
@@ -524,4 +524,7 @@ object RustTranslator {
     case _ => true
   }
 
+  def isRoot(value: expr): Boolean = {
+    value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == RustCompiler.idToStr(RootIdentifier))
+  }
 }
