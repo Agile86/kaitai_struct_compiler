@@ -93,14 +93,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           case pis: ParseInstanceSpec =>
             pis.dataType match {
               case _: NumericType | _: StrType =>
-                s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
+                s"$s(${privateMemberName(IoIdentifier)}, self._root)?"
               case t: UserTypeInstream =>
                 if (t.isOpaque)
-                  s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?.as_ref().unwrap()"
+                  s"$s(${privateMemberName(IoIdentifier)}, self._root)?.as_ref().unwrap()"
                 else
-                  s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?"
+                  s"$s(${privateMemberName(IoIdentifier)}, self._root)?"
               case _ =>
-                s"$s(${privateMemberName(IoIdentifier)}, self.get_root(_root))?.as_ref().unwrap()"
+                s"$s(${privateMemberName(IoIdentifier)}, self._root)?.as_ref().unwrap()"
             }
           case _ =>
             s"$s()"
@@ -181,49 +181,43 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def anyField(value: expr, attrName: String): String = {
-    val t = translate(value)
+    var t = translate(value)
     var checkDeref = true
     val a = attrName match {
-      case "size" | "is_eof" | "pos" | "_io" =>
+      case "size" | "is_eof" | "pos" =>
         checkDeref = false
         s"$attrName()"
+      case "_io" =>
+        checkDeref = false
+        t = t.replace("();\nx", "_raw();\nx")
+        "as_slice()"
       case _ =>
         doName(attrName)
     }
 
-    var r = if (checkDeref) { val nativeType = getNativeType(attrName)
-                              nativeType.kind match {
-                                case TypeKind.RefCell =>
-                                  nativeType.nativeType match {
-                                    case "Vec<u8>" => s"${remove_deref(t)}.$a"
-                                    case _ => s"${ensure_deref(t, onlySelf = false)}.$a"
-                                  }
-                                case TypeKind.Raw => s"${remove_deref(t)}.$a"
-                                case TypeKind.Param => s"${remove_deref(t)}.$a"
-                                case TypeKind.ParamBox => s"${ensure_deref(t, onlySelf = false)}.$a"
-                                case TypeKind.Option => s"${remove_deref(t)}.$a"
-                                case TypeKind.None => ???
-                              }
-                            } else {
-                              s"$t.$a"
-                            }
-/*
-    if (r.isEmpty) {
-      if (need_deref(attrName)) {
-        if (t.charAt(0) == '*') {
-          r = s"$t.$a"
-        } else {
-          r = s"*$t.$a"
-        }
+    var r = if (checkDeref) {
+      if (value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == idToStr(RootIdentifier))) {
+        s"""|let x = $t;    //"note: consider using a `let` binding to create a longer lived value"
+            |let x = x.$a;
+            |x""".stripMargin
       } else {
-        if (t.charAt(0) == '*') {
-          r = s"${t.substring(1)}.$a"
-        } else {
-          r = s"$t.$a"
+        val nativeType = getNativeType(attrName)
+        nativeType.kind match {
+          case TypeKind.RefCell =>
+            nativeType.nativeType match {
+              case "Vec<u8>" => s"${remove_deref(t)}.$a"
+              case _ => s"${ensure_deref(t, onlySelf = false)}.$a"
+            }
+          case TypeKind.Raw => s"${remove_deref(t)}.$a"
+          case TypeKind.Param => s"${remove_deref(t)}.$a"
+          case TypeKind.ParamBox => s"${ensure_deref(t, onlySelf = false)}.$a"
+          case TypeKind.Option => s"${remove_deref(t)}.$a"
+          case TypeKind.None => ???
         }
       }
+    } else {
+      s"$t.$a"
     }
-*/
 
     attrName match {
       case Identifier.IO =>
@@ -351,7 +345,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"self.${RustCompiler.privateMemberName(RootIdentifier)}.as_ref().unwrap().as_ref()"
+    case Identifier.ROOT => s"self.${RustCompiler.privateMemberName(RootIdentifier)}.borrow().upgrade().unwrap()"
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)
