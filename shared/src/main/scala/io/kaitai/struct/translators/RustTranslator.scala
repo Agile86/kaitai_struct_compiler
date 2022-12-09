@@ -76,13 +76,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             vis.dataTypeOpt match {
               case Some(dt) =>
                 dt match {
-                  case _: StrType =>
-                    s"$call.as_str()"
-                  case _ =>
-                    call
+                  case _: StrType => s"$call.as_str()"
+                  case _: BytesType => s"$call.as_slice()"
+                  case _ => call
                 }
-              case None =>
-                call
+              case None => call
             }
           case as: AttrSpec =>
             val code = s"$s()"
@@ -114,14 +112,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   def findMember(attrName: String): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
-      for { attr <- inClass.seq.find(_.id == NamedIdentifier(attrName)) }
-        return Some(attr)
 
-      for { param <- inClass.params.find (_.id == NamedIdentifier(attrName)) }
-        return Some(param)
+      inClass.seq.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
 
-      for { inst <- inClass.instances.get(InstanceIdentifier(attrName)) }
-        return Some(inst)
+      inClass.params.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
+
+      inClass.instances.foreach { case (instName, instSpec) =>
+        if (idToStr(instName) == attrName) {
+          return Some(instSpec)
+        }
+      }
 
       inClass.types.foreach{ t =>
         for { found <- findInClass(t._2) }
@@ -315,7 +323,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       found = get_instance(get_top_class(provider.nowClass), s)
       if (found.isDefined) {
         val nativeType = RustCompiler.kaitaiTypeToNativeType(Some(NamedIdentifier(s)), provider.nowClass, found.get.dataType)
-        deref = (nativeType.kind == TypeKind.RefCell) || is_copy_type(found.get.dataTypeComposite)
+        deref = if (nativeType.kind == TypeKind.RefCell) {
+          nativeType.nativeType != "Vec<u8>"
+        } else {
+          is_copy_type(found.get.dataTypeComposite)
+        }
       } else {
         found = get_param(get_top_class(provider.nowClass), s)
         if (found.isDefined) {
@@ -441,7 +453,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"decode_string(&$bytesExpr, &${translate(encoding)})?"
     } else {
       val subst = bytesExpr.replace(".to_vec()", "")
-                           .replace("None)?", "None)?.as_slice()")
+                           .replace("None)?", "None)?")
       s"decode_string($subst, &${translate(encoding)})?"
     }
   }
