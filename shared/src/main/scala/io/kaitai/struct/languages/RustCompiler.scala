@@ -826,6 +826,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             case _ =>
               if ((nativeType.kind != TypeKind.ParamBox) && !RustTranslator.is_copy_type(typ))
                 byref = "&"
+              else
+                if (RustTranslator.isRoot(a))
+                  byref = "&*"
           }
           s"$byref${translator.translate(a)}$try_into"
         }, "", ", ", "")
@@ -837,11 +840,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             }
             s"$baseName"
         }
+        val root = s"(*self.${privateMemberName(RootIdentifier)}.borrow()).upgrade().unwrap()"
         val addArgs = if (t.isOpaque) {
-          ", None, None"
+          s", $root, None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
-          val root = s"(*self.${privateMemberName(RootIdentifier)}.borrow()).upgrade().unwrap()"
           val parent = t.forcedParent match {
             case Some(USER_TYPE_NO_PARENT) => "None"
             case Some(fp) => translator.translate(fp)
