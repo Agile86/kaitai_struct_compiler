@@ -157,12 +157,13 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def readHeader(endian: Option[FixedEndian],
                           isEmpty: Boolean): Unit = {
+    val root = privateMemberName(RootIdentifier)
     out.puts(s"fn read<S: $kstreamName>(")
     out.inc
     out.puts(s"&self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S,")
     out.puts(
-      s"${privateMemberName(RootIdentifier)}: Rc<Self::Root>,"
+      s"$root: Option<Rc<Self::Root>>,"
     )
     out.puts(
       s"${privateMemberName(ParentIdentifier)}: Option<TypedStack<Self::ParentStack>>,"
@@ -171,8 +172,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s") -> KResult<()> {")
     out.inc
 
-    val root = privateMemberName(RootIdentifier)
-    out.puts(s"""*self.$root.borrow_mut() = Rc::downgrade(&$root.clone());""")
+    out.puts(s"if let Some(rc) = $root {")
+    out.inc
+    out.puts(s"*self.$root.borrow_mut() = Rc::downgrade(&rc.clone());")
+    out.dec
+    out.puts("}")
 
     // If there aren't any attributes to parse, we need to end the read implementation here
     if (typeProvider.nowClass.seq.isEmpty)
@@ -535,7 +539,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.inc
     out.puts("&self,")
     out.puts(s"${privateMemberName(IoIdentifier)}: &$streamLife S,")
-    out.puts(s"${privateMemberName(RootIdentifier)}: Rc<${classTypeName(typeProvider.topClass)}>")
+    out.puts(s"${privateMemberName(RootIdentifier)}: Option<Rc<${classTypeName(typeProvider.topClass)}>>")
     out.dec
     val nativeType = kaitaiTypeToNativeType(Some(instName), typeProvider.nowClass, dataType)
     out.puts(s") -> KResult<${nativeType.resType}> {")
@@ -842,7 +846,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         }
         val root = s"(*self.${privateMemberName(RootIdentifier)}.borrow()).upgrade().unwrap()"
         val addArgs = if (t.isOpaque) {
-          s", $root, None"
+          s", None, None"
         } else {
           val currentType = classTypeName(typeProvider.nowClass)
           val parent = t.forcedParent match {
@@ -863,7 +867,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                 }
               }
           }
-          s", $root, $parent"
+          s", None, $parent"
         }
         val streamType = if (io == privateMemberName(IoIdentifier)) {
           "S"
