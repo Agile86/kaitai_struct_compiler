@@ -72,7 +72,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (memberFound.isDefined)
         memberFound.get match {
           case vis: ValueInstanceSpec =>
-            val call = s"$s(${privateMemberName(IoIdentifier)}, ${doLocalName(idToStr(RootIdentifier))})?"
+            val call = s"$s(${privateMemberName(IoIdentifier)}, None)?"
             vis.dataTypeOpt match {
               case Some(dt) =>
                 dt match {
