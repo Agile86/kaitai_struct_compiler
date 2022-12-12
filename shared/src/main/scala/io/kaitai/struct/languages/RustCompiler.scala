@@ -282,7 +282,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def attrParseHybrid(leProc: () => Unit, beProc: () => Unit): Unit = {}
 
   override def condIfHeader(expr: Ast.expr): Unit = {
-    out.puts(s"if ${expression(expr)} {")
+    val strExpr = expression(expr)
+    val lines = strExpr.lines.toList
+    lines.take(lines.size - 1).foreach(out.puts(_))
+    out.puts(s"let x = ${lines.last};")
+    out.puts("if x {")
     out.inc
   }
 
@@ -831,7 +835,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               if ((nativeType.kind != TypeKind.ParamBox) && !RustTranslator.is_copy_type(typ))
                 byref = "&"
               else
-                if (RustTranslator.isRoot(a))
+                if (RustTranslator.isSpecialId(a, RootIdentifier))
                   byref = "&*"
           }
           s"$byref${translator.translate(a)}$try_into"
