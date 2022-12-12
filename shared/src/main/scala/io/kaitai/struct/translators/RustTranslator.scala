@@ -182,7 +182,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def anyField(value: expr, attrName: String): String = {
     var t = translate(value)
-    var checkDeref = true
+    var checkDeref = !RustTranslator.isSpecialId(value, ParentIdentifier)
     val a = attrName match {
       case "size" | "is_eof" | "pos" =>
         checkDeref = false
@@ -196,7 +196,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
     var r = if (checkDeref) {
-      if (RustTranslator.isRoot(value)) {
+      if (RustTranslator.isSpecialId(value, RootIdentifier)) {
         s"""|let x = $t;    //"note: consider using a `let` binding to create a longer lived value"
             |let x = x.$a;
             |x""".stripMargin
@@ -524,7 +524,7 @@ object RustTranslator {
     case _ => true
   }
 
-  def isRoot(value: expr): Boolean = {
-    value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == RustCompiler.idToStr(RootIdentifier))
+  def isSpecialId(value: expr, id: SpecialIdentifier): Boolean = {
+    value.isInstanceOf[Ast.expr.Name] && (value.asInstanceOf[Ast.expr.Name].id.name == RustCompiler.idToStr(id))
   }
 }
