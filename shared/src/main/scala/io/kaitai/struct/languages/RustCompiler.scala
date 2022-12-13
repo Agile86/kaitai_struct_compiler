@@ -87,7 +87,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     // everyone gets a phantom data marker
     //out.puts(s"_phantom: std::marker::PhantomData<&$streamLife ()>,")
 
-    out.puts(s"pub ${privateMemberName(RootIdentifier)}: RefCell<Weak<${types2class(name.slice(0, 1))}>>,")
+    out.puts(s"pub ${privateMemberName(RootIdentifier)}: RootType<${types2class(name.slice(0, 1))}>,")
 
     typeProvider.nowClass.params.foreach { p =>
       // Make sure the parameter is imported if necessary
@@ -134,8 +134,30 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         }
     )
 
+    val className = classTypeName(typeProvider.nowClass)
+
+    out.puts(s"impl PartialEq<$className> for $className {")
+    out.inc
+    out.puts(s"fn eq(&self, other: &$className) -> bool {")
+    out.inc
+    out.puts("std::unimplemented!()")
+    out.dec
+    out.puts("}")
+    out.dec
+    out.puts("}")
+
+    out.puts(s"impl PartialOrd<$className> for $className {")
+    out.inc
+    out.puts(s"fn partial_cmp(&self, other: &$className) -> Option<std::cmp::Ordering> {")
+    out.inc
+    out.puts("std::unimplemented!()")
+    out.dec
+    out.puts("}")
+    out.dec
+    out.puts("}")
+
     out.puts(
-      s"impl<$readLife, $streamLife: $readLife> $kstructName<$readLife, $streamLife> for ${classTypeName(typeProvider.nowClass)} {"
+      s"impl<$readLife, $streamLife: $readLife> $kstructName<$readLife, $streamLife> for $className {"
     )
     out.inc
     out.puts(s"type Root = ${types2class(name.slice(0, 1))};")
@@ -174,7 +196,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
     out.puts(s"if let Some(rc) = $root {")
     out.inc
-    out.puts(s"*self.$root.borrow_mut() = Rc::downgrade(&rc.clone());")
+    out.puts(s"self.$root.set(&rc);")
     out.dec
     out.puts("}")
 
@@ -255,7 +277,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     {
       out.puts(nativeType.attrGetterDcl(fn))
       out.inc
-      out.puts(nativeType.attrGetterImpl(idToStr(attrName)))
+      out.puts(nativeType.attrGetterImpl(fn))
     }
     out.dec
     out.puts("}")
@@ -1142,6 +1164,41 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts("}")
       out.puts
     }
+
+    {
+      val types_set = scala.collection.mutable.Set[String]()
+      val attrs_set = scala.collection.mutable.Set[String]()
+      types.foreach(t => {
+        val variantName = switchVariantName(id, t)
+        val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t).nativeType
+        if (types_set.add(typeName)) {
+          t.asInstanceOf[UserType].classSpec.get.seq.foreach(
+            attr => {
+              val attrName = attr.id
+              if (attrs_set.add(idToStr(attrName))) {
+                out.puts(s"impl $enum_typeName {")
+                out.inc
+                val fn = idToStr(attrName)
+                val nativeType = kaitaiTypeToNativeTypeWrapper(Some(attrName), attr.dataTypeComposite)
+                out.puts(nativeType.attrGetterDcl(fn))
+                out.inc
+                out.puts("match self {")
+                out.inc
+                out.puts(s"$enum_typeName::$typeName(x) => x.$fn.borrow(),")
+                out.puts("_ => panic!(\"wrong variant: {:?}\", self),")
+                out.dec
+                out.puts("}")
+                out.dec
+                out.puts("}")
+                out.dec
+                out.puts("}")
+              }
+            }
+          )
+        }
+      })
+    }
+
   }
 
   def switchVariantName(id: Identifier, attrType: DataType): String =
