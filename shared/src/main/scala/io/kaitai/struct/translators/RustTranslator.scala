@@ -93,14 +93,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           case pis: ParseInstanceSpec =>
             pis.dataType match {
               case _: NumericType | _: StrType =>
-                s"$s(${privateMemberName(IoIdentifier)}, self._root)?"
+                s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
               case t: UserTypeInstream =>
                 if (t.isOpaque)
-                  s"$s(${privateMemberName(IoIdentifier)}, self._root)?.as_ref().unwrap()"
+                  s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?.as_ref().unwrap()"
                 else
-                  s"$s(${privateMemberName(IoIdentifier)}, self._root)?"
+                  s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?"
               case _ =>
-                s"$s(${privateMemberName(IoIdentifier)}, self._root)?.as_ref().unwrap()"
+                s"$s(${privateMemberName(IoIdentifier)}, ${privateMemberName(RootIdentifier)})?.as_ref().unwrap()"
             }
           case _ =>
             s"$s()"

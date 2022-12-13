@@ -806,19 +806,16 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"$io.read_${t.apiCall(defEndian)}()?.into()"
         }
       case _: BytesEosType =>
-        result = "t.to_vec()"
-        s"$io.read_bytes_full()?"
+        s"$io.read_bytes_full()?.into()"
       case b: BytesTerminatedType =>
-        result = "t.to_vec()"
-        s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?"
+        s"$io.read_bytes_term(${b.terminator}, ${b.include}, ${b.consume}, ${b.eosError})?.into()"
       case b: BytesLimitType =>
-        result = "t.to_vec()"
         val expr = expression(b.size)
         val deref = if (expr.charAt(0) == '*') "*" else ""
         val lines = (if (!deref.isEmpty) expr.substring(1) else expr).lines.toList
         lines.take(lines.size - 1).foreach(out.puts(_))
         out.puts(s"let x = $deref${lines.last};")
-        s"$io.read_bytes(x as usize)?"
+        s"$io.read_bytes(x as usize)?.into()"
       case BitsType1(bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}(1)? != 0"
       case BitsType(width: Int, bitEndian) => s"$io.read_bits_int_${bitEndian.toSuffix}($width)?"
       case t: UserType =>
@@ -910,14 +907,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                                 include: Boolean): String = {
     val ioId = privateMemberName(IoIdentifier)
     val expr = padRight match {
-      case Some(p) => s"$ioId.bytes_strip_right($expr0.as_slice(), $p).into()"
+      case Some(p) => s"$ioId.bytes_strip_right($expr0, $p).into()"
       case None => expr0
     }
 
     terminator match {
       case Some(term) =>
         if (!expr.endsWith(".into()"))
-          s"$ioId.bytes_terminate($expr.as_slice(), $term, $include).into()"
+          s"$ioId.bytes_terminate($expr, $term, $include).into()"
         else
           s"$ioId.bytes_terminate($expr, $term, $include).into()"
       case None =>
