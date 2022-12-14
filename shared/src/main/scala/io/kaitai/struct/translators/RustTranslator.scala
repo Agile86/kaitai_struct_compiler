@@ -88,6 +88,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             aType match {
               case "String" => s"$code.as_str()"
               case "Vec<u8>" => s"$code.as_slice()"
+              case "SwitchType" => s"$code.as_ref().unwrap()"
               case _ => code
             }
           case pis: ParseInstanceSpec =>
