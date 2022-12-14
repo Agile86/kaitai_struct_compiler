@@ -1526,7 +1526,7 @@ object RustCompiler
             kstructUnitName
         }
 
-        NativeType(typeName, TypeKind.Param, attrType)
+        NativeType(typeName, TypeKind.RefCell, attrType)
         //if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case KaitaiStreamType =>
@@ -1560,6 +1560,7 @@ object RustCompiler
     case _: BytesType => "Vec<u8>"
 
     case ArrayTypeInStream(inType) => s"Vec<${kaitaiPrimitiveToNativeType(inType)}>"
+    case _: SwitchType => "SwitchType"
 
     case _ => "kaitaiPrimitiveToNativeType ???"
   }
