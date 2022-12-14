@@ -345,7 +345,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"self.${RustCompiler.privateMemberName(RootIdentifier)}.borrow().upgrade().unwrap()"
+    case Identifier.ROOT => s"self.${RustCompiler.privateMemberName(RootIdentifier)}.get()"
     case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.as_ref().unwrap().peek()"
     case _ =>
       val n = doName(s)
