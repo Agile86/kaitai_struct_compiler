@@ -558,9 +558,25 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   var in_instance = false
 
   override def instanceCalculate(instName: Identifier, dataType: DataType, value: Ast.expr): Unit = {
+    val instId = translator.get_instance(typeProvider.nowClass, idToStr(instName))
+    var opaque = false
+    if (instId.isDefined) {
+      val idType = instId.get.dataType
+      idType match {
+        case t: UserType =>
+          if (t.isOpaque) {
+            opaque = true
+          }
+        case _ =>
+      }
+    }
     dataType match {
       case _: UserType =>
-        out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.clone();")
+        if (opaque) {
+          out.puts(s"*${privateMemberName(instName)}.borrow_mut() = Some(Box::new(${translator.remove_deref(expression(value))}.clone()));")
+        } else {
+          out.puts(s"*${privateMemberName(instName)}.borrow_mut() = ${translator.remove_deref(expression(value))}.clone();")
+        }
       case _: StrType =>
         val str = translator.remove_deref(expression(value))
 //        val subst = if (value.isInstanceOf[Ast.expr.Str]) s"$str.to_string()" else str
@@ -743,7 +759,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       }
       if (refcell) {
           val nativeType = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, idType)
-          if (nativeType.kind == TypeKind.RefCell) {
+          if (nativeType.kind == TypeKind.RefCell || nativeType.kind == TypeKind.ParamBox) {
             if (opaque) {
               out.puts(s"*${privateMemberName(id)}.borrow_mut() = Some(Box::new($expr));")
             } else {
