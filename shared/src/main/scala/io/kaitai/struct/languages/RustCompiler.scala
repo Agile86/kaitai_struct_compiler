@@ -943,7 +943,14 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def switchIfStart(id: Identifier, on: Ast.expr, onType: DataType): Unit = {
     out.puts("{")
     out.inc
-    out.puts(s"let on = ${expression(on)};")
+
+    var code = expression(on)
+    val prefix = "*_parent.get_value().borrow()";
+    if (code.startsWith(prefix)) {
+      out.puts(s"let on = _parent.get_value().borrow();")
+      code = "on.as_ref().unwrap()" + code.substring(prefix.length);
+    }
+    out.puts(s"let on = $code;")
   }
 
   override def switchIfCaseFirstStart(condition: Ast.expr): Unit = {
