@@ -233,7 +233,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
     case Identifier.ROOT => s"${self_name()}.${RustCompiler.privateMemberName(RootIdentifier)}.get().as_ref()"
-    case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.get().as_ref()"
+    case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.get_value().borrow()"
     case _ =>
       val n = doName(s)
       val deref = need_deref(s)
