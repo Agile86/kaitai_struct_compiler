@@ -7,7 +7,7 @@ import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.exprlang.Ast.expr
 import io.kaitai.struct.format.{Identifier, IoIdentifier, ParentIdentifier, RootIdentifier}
 import io.kaitai.struct.languages.RustCompiler
-import io.kaitai.struct.{RuntimeConfig, Utils}
+import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig, Utils}
 
 class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   extends BaseTranslator(provider) {
@@ -15,9 +15,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   import RustCompiler._
 
   override def doByteArrayLiteral(arr: Seq[Byte]): String =
-    "vec![" + arr.map(x => "%0#2xu8".format(x & 0xff)).mkString(", ") + "].as_slice()"
+    "vec![" + arr.map(x => "%0#2xu8".format(x & 0xff)).mkString(", ") + "]"
   override def doByteArrayNonLiteral(elts: Seq[Ast.expr]): String =
-    "vec![" + elts.map(translate).mkString(", ") + "].as_slice()"
+    "vec![" + elts.map(translate).mkString(", ") + "]"
   override def doArrayLiteral(t: DataType, value: Seq[Ast.expr]): String = {
     t match {
       case CalcStrType => "vec![" + value.map(v => translate(v)).mkString(".to_string(), ") + ".to_string()]"
@@ -67,13 +67,76 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      val topClass = get_top_class(provider.nowClass)
-      val instance_found = get_instance(topClass, s)
-      if (instance_found.isDefined) {
-        s"$s(${privateMemberName(IoIdentifier)})?"
-      } else {
+      val memberFound = findMember(s)
+      if (memberFound.isDefined)
+        memberFound.get match {
+          case vis: ValueInstanceSpec =>
+            s"$s(${privateMemberName(IoIdentifier)})?"
+          case as: AttrSpec =>
+            val code = s"$s()"
+            val aType = RustCompiler.kaitaiTypeToNativeType(Some(as.id), provider.nowClass, as.dataTypeComposite)
+            val refOpt = "Option<[^>]+>$".r
+            aType match {
+              //case "String" => s"$code.as_str()"
+              //case "Vec<u8>" => s"$code.as_slice()"
+              case refOpt() =>
+                if (!enum_numeric_only(as.dataTypeComposite)) {
+                  s"$code.as_ref().unwrap()"
+                } else code
+              case _ => code
+            }
+          case pis: ParseInstanceSpec =>
+            s"$s(${privateMemberName(IoIdentifier)})?"
+          case _ =>
+            s"$s()"
+        }
+      else {
         s"$s()"
       }
+  }
+
+  def findMember(attrName: String): Option[MemberSpec] = {
+    def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
+
+      inClass.seq.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
+
+      inClass.params.foreach { el =>
+        if (idToStr(el.id) == attrName) {
+          return Some(el)
+        }
+      }
+
+      inClass.instances.foreach { case (instName, instSpec) =>
+        if (idToStr(instName) == attrName) {
+          return Some(instSpec)
+        }
+      }
+
+      inClass.types.foreach{ t =>
+        for { found <- findInClass(t._2) }
+          return Some(found)
+      }
+      None
+    }
+
+    val attr = attrName match {
+      case Identifier.PARENT | Identifier.IO =>
+        None
+      case _ =>
+        for { ms <- findInClass(provider.nowClass) }
+          return Some(ms)
+
+        provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
+          for { ms <- findInClass(cls._2) }
+            return Some(ms)
+        }
+        None
+    }
+    attr
   }
 
   def get_top_class(c: ClassSpec): ClassSpec = c.upClass match {
@@ -104,7 +167,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def anyField(value: expr, attrName: String): String = {
     val t = translate(value)
-    val a = doName(attrName)
+    var a = doName(attrName)
+    attrName match {
+      case Identifier.PARENT => a = a + ".get_value().borrow().as_ref().unwrap()"
+      case _ =>
+    }
     var r = ""
     if (need_deref(attrName)) {
       if (t.charAt(0) == '*') {
@@ -122,9 +189,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     attrName match {
       case Identifier.IO =>
         r = r.replace("()._io()", "_raw()")
-      case Identifier.PARENT =>
-        // handle _parent._parent
-        r = r.replace(".get().as_ref()._parent", ".get().as_ref()._parent.get().as_ref()")
       case _ =>
     }
     r
@@ -133,6 +197,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   def rem_vec_amp(s: String): String = {
     if (s.startsWith("&vec!")) {
       s.substring(1)
+    } else {
+      s
+    }
+  }
+
+  def ensure_vec_amp(s: String): String = {
+    if (s.startsWith("vec!")) {
+      s"&$s"
     } else {
       s
     }
@@ -196,6 +268,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   var context_need_deref_attr = false
 
+  def enum_numeric_only(dataType: DataType): Boolean = {
+    var types : Set[DataType] = Set()
+    var enum_typename = false
+    dataType match {
+      case st: SwitchType =>
+        types = st.cases.values.toSet
+        enum_typename = true
+      //case _: EnumType => return true
+      case _ => return false
+    }
+    var enum_only_numeric = true
+    types.foreach {
+      case _: NumericType => // leave unchanged
+      case _ => enum_only_numeric = false
+    }
+    enum_only_numeric
+  }
+
   def is_copy_type(dataType: DataType): Boolean = dataType match {
     case _: SwitchType => false
     case _: UserType => false
@@ -206,19 +296,20 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ => true
   }
 
-  def need_deref(s: String): Boolean = {
+  def need_deref(s: String, c: ClassSpec = provider.nowClass): Boolean = {
     var deref = false
-    var found = get_attr(get_top_class(provider.nowClass), s)
+    var tc = get_top_class(c)
+    var found = get_attr(tc, s)
     if (found.isDefined ) {
-      deref = true//is_copy_type(found.get.dataTypeComposite)
+        deref = !enum_numeric_only(found.get.dataTypeComposite)
     } else {
-      found = get_instance(get_top_class(provider.nowClass), s)
+      found = get_instance(tc, s)
       if (found.isDefined) {
-        deref = true //is_copy_type(found.get.dataTypeComposite)
-      } else {
-        found = get_param(get_top_class(provider.nowClass), s)
-        if (found.isDefined) {
           deref = true
+      } else {
+        found = get_param(tc, s)
+        if (found.isDefined) {
+          deref = !enum_numeric_only(found.get.dataTypeComposite)
         } else {
           deref = false
         }
@@ -232,11 +323,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"${self_name()}.${RustCompiler.privateMemberName(RootIdentifier)}.get().as_ref()"
-    case Identifier.PARENT => s"${RustCompiler.privateMemberName(ParentIdentifier)}.get_value().borrow()"
+    case Identifier.ROOT => s"_r"
+    case Identifier.PARENT => s"_prc.as_ref().unwrap()"
     case _ =>
       val n = doName(s)
-      val deref = need_deref(s)
+      val deref = !n.endsWith(".as_str()") && !n.endsWith(".as_slice()") && need_deref(s)
       if (context_need_deref_attr || deref) {
         s"*${self_name()}.$n"
       } else {
@@ -244,9 +335,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    context_need_deref_attr = true
+    //context_need_deref_attr = true
     val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
-    context_need_deref_attr = false
+    //context_need_deref_attr = false
     code
   }
 
@@ -257,6 +348,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${RustCompiler.types2class(enumTypeAbs)}::${Utils.upperCamelCase(label)}"
 
   override def doStrCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
+    // val l = translate(left)
+    // val r = translate(right)
+    // val asStr = if (l.endsWith(".as_str()") && r.endsWith(")?")) ".as_str()" else ""
+    // s"$l ${cmpOp(op)} $r$asStr"
     s"${ensure_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}.to_string()"
   }
 
@@ -273,6 +368,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case _: EnumType => to_type = ".clone()"
       case _: StrType => to_type = ".to_string()"
       case _: BytesType => to_type = ".to_vec()"
+      case _: CalcArrayType => to_type = ".clone()"
       case _ =>
     }
     if (to_type.isEmpty) {
@@ -316,7 +412,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   override def enumToInt(v: expr, et: EnumType): String =
-    s"i64::from(${remove_deref(translate(v))})"
+    s"i64::from(&${translate(v)})"
 
   override def boolToInt(v: expr): String =
     s"(${translate(v)}) as i32"
@@ -337,7 +433,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     if (bytesExpr.charAt(0) == '*') {
       s"decode_string(&$bytesExpr, &${translate(encoding)})?"
     } else {
-      s"decode_string($bytesExpr, &${translate(encoding)})?"
+      s"decode_string(${ensure_vec_amp(bytesExpr)}, &${translate(encoding)})?"
     }
   }
 
