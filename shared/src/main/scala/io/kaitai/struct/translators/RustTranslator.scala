@@ -70,7 +70,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       val memberFound = findMember(s)
       if (memberFound.isDefined)
         memberFound.get match {
-          case vis: ValueInstanceSpec =>
+          case _: ValueInstanceSpec | _: ParseInstanceSpec=>
             s"$s(${privateMemberName(IoIdentifier)})?"
           case as: AttrSpec =>
             val code = s"$s()"
@@ -85,8 +85,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 } else code
               case _ => code
             }
-          case pis: ParseInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)})?"
           case _ =>
             s"$s()"
         }
@@ -298,23 +296,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   def need_deref(s: String, c: ClassSpec = provider.nowClass): Boolean = {
     var deref = false
-    var tc = get_top_class(c)
-    var found = get_attr(tc, s)
-    if (found.isDefined ) {
-        deref = !enum_numeric_only(found.get.dataTypeComposite)
-    } else {
-      found = get_instance(tc, s)
-      if (found.isDefined) {
+    val memberFound = findMember(s)
+    if (memberFound.isDefined ) {
+      val spec = memberFound.get
+      spec match {
+        case _: AttrSpec =>
+          deref = !enum_numeric_only(spec.dataTypeComposite)
+        case _: ValueInstanceSpec | _: ParseInstanceSpec =>
           deref = true
-      } else {
-        found = get_param(tc, s)
+      }
+      deref
+    } else {
+      val tc = get_top_class(c)
+      val  found = get_param(tc, s)
         if (found.isDefined) {
           deref = !enum_numeric_only(found.get.dataTypeComposite)
-        } else {
-          deref = false
         }
-      }
     }
+
     deref
   }
 
