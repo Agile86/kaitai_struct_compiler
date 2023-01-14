@@ -537,6 +537,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s") -> KResult<Ref<$typeName>> {")
     out.inc
     out.puts(s"let _rrc = self._root.get()?;")
+    out.puts(s"let _rrv = self._root.get_value().borrow();")
     out.puts(s"let _prc = self._parent.get_value().borrow();")
     out.puts(s"let _r = _rrc.as_ref();")
   }
@@ -771,6 +772,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           if (!translator.is_copy_type(typ))
             byref = "&"
       }
+      if (t.contains("Rc<"))
+        byref = s"$byref*"
       s"$byref${translator.translate(a)}$try_into"
     }, "", ", ", "")
   }
