@@ -85,6 +85,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 } else code
               case _ => code
             }
+          case _: ParamDefSpec =>
+            s"$s().as_ref().unwrap()"
           case _ =>
             s"$s()"
         }
@@ -302,7 +304,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       spec match {
         case _: AttrSpec =>
           deref = !enum_numeric_only(spec.dataTypeComposite)
-        case _: ValueInstanceSpec | _: ParseInstanceSpec =>
+        case _: ValueInstanceSpec | _: ParseInstanceSpec | _: ParamDefSpec =>
           deref = true
       }
       deref
@@ -322,7 +324,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"_r"
+    case Identifier.ROOT => s"_rrv"
     case Identifier.PARENT => s"_prc.as_ref().unwrap()"
     case _ =>
       val n = doName(s)
