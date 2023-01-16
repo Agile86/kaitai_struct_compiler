@@ -68,9 +68,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.PARENT => s
     case _ =>
       val memberFound = findMember(s)
-      if (memberFound.isDefined)
-        memberFound.get match {
-          case _: ValueInstanceSpec | _: ParseInstanceSpec=>
+      if (memberFound.isDefined) {
+        val spec = memberFound.get
+        spec match {
+          case _: ValueInstanceSpec | _: ParseInstanceSpec =>
             s"$s(${privateMemberName(IoIdentifier)})?"
           case as: AttrSpec =>
             val code = s"$s()"
@@ -85,12 +86,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 } else code
               case _ => code
             }
-          case _: ParamDefSpec =>
-            s"$s().as_ref().unwrap()"
+          case pd: ParamDefSpec =>
+            pd.dataType match {
+              case _: IntType => s"$s()"
+              case _ => s"$s().as_ref().unwrap()"
+            }
           case _ =>
             s"$s()"
         }
-      else {
+      } else {
         s"$s()"
       }
   }
@@ -166,12 +170,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def anyField(value: expr, attrName: String): String = {
-    val t = translate(value)
-    var a = doName(attrName)
-    attrName match {
-      case Identifier.PARENT => a = a + ".get_value().borrow().as_ref().unwrap()"
-      case _ =>
+    def addUnwrap(predicate: Boolean, suffix: String): String = {
+      if (predicate) suffix else ""
     }
+    val t = translate(value) +
+              addUnwrap(value.isInstanceOf[Ast.expr.Name] &&
+                        (value.asInstanceOf[Ast.expr.Name].id.name == Identifier.ROOT),
+                  ".as_ref().unwrap()")
+    var a = doName(attrName) +
+              addUnwrap(attrName == Identifier.PARENT,
+                  ".get_value().borrow().as_ref().unwrap()")
+
     var r = ""
     if (need_deref(attrName)) {
       if (t.charAt(0) == '*') {
