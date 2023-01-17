@@ -64,6 +64,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
+  def unwrap(s: String): String = s + ".as_ref().unwrap()"
+
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
@@ -82,14 +84,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               //case "Vec<u8>" => s"$code.as_slice()"
               case refOpt() =>
                 if (!enum_numeric_only(as.dataTypeComposite)) {
-                  s"$code.as_ref().unwrap()"
+                  unwrap(s"$code")
                 } else code
               case _ => code
             }
           case pd: ParamDefSpec =>
             pd.dataType match {
-              case _: IntType => s"$s()"
-              case _ => s"$s().as_ref().unwrap()"
+              case _: NumericType | _: BooleanType => s"$s()"
+              case _ => unwrap(s"$s()")
             }
           case _ =>
             s"$s()"
@@ -176,10 +178,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val t = translate(value) +
               addUnwrap(value.isInstanceOf[Ast.expr.Name] &&
                         (value.asInstanceOf[Ast.expr.Name].id.name == Identifier.ROOT),
-                  ".as_ref().unwrap()")
+                unwrap(""))
     var a = doName(attrName) +
               addUnwrap(attrName == Identifier.PARENT,
-                  ".get_value().borrow().as_ref().unwrap()")
+                unwrap(".get_value().borrow()"))
 
     var r = ""
     if (need_deref(attrName)) {
@@ -333,8 +335,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => s"_rrv"
-    case Identifier.PARENT => s"_prc.as_ref().unwrap()"
+    case Identifier.ROOT => "_rrv"
+    case Identifier.PARENT => unwrap("_prc")
     case _ =>
       val n = doName(s)
       val deref = !n.endsWith(".as_str()") && !n.endsWith(".as_slice()") && need_deref(s)
