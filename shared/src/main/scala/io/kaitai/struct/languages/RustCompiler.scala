@@ -773,7 +773,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           if (!translator.is_copy_type(typ))
             byref = "&"
       }
-      if (t.contains("Rc<"))
+      if (!t.startsWith("Vec<") && t.contains("Rc<"))
         byref = s"$byref*"
       s"$byref${translator.translate(a)}$try_into"
     }, "", ", ", "")

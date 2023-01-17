@@ -90,7 +90,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             }
           case pd: ParamDefSpec =>
             pd.dataType match {
-              case _: NumericType | _: BooleanType | _: EnumType => s"$s()"
+              case _: NumericType | _: BooleanType | _: EnumType | _: ArrayType => s"$s()"
               case _ => unwrap(s"$s()")
             }
           case _ =>
