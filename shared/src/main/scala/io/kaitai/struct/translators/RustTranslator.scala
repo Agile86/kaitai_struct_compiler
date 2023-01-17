@@ -83,14 +83,22 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               //case "String" => s"$code.as_str()"
               //case "Vec<u8>" => s"$code.as_slice()"
               case refOpt() =>
-                if (!enum_numeric_only(as.dataTypeComposite)) {
+                if (!enum_numeric_only(as.dataTypeComposite))
                   unwrap(s"$code")
-                } else code
+                else
+                  code
               case _ => code
             }
           case pd: ParamDefSpec =>
             pd.dataType match {
               case _: NumericType | _: BooleanType | _: EnumType | _: ArrayType => s"$s()"
+              case _: CalcUserType =>
+                val code = s"$s()"
+                val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
+                if (!aType.startsWith("Rc<"))
+                  unwrap(s"$code")
+                else
+                  code
               case _ => unwrap(s"$s()")
             }
           case _ =>
