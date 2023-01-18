@@ -1101,6 +1101,22 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts
     }
 
+    def generateDelegate(typeName: String, fn: String, nativeType: String, suffix: String): Unit = {
+      out.puts(s"impl $enum_typeName {")
+      out.inc
+      out.puts(s"pub fn $fn(&self) -> $nativeType {")
+      out.inc
+      out.puts("match self {")
+      out.inc
+      out.puts(s"$enum_typeName::$typeName(x) => x$suffix,")
+      out.puts("_ => panic!(\"wrong variant: {:?}\", self),")
+      out.dec
+      out.puts("}")
+      out.dec
+      out.puts("}")
+      out.dec
+      out.puts("}")
+    }
     {
       val types_set = scala.collection.mutable.Set[String]()
       val attrs_set = scala.collection.mutable.Set[String]()
@@ -1113,33 +1129,23 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                 attr => {
                   val attrName = attr.id
                   if (attrs_set.add(idToStr(attrName))) {
-                    out.puts(s"impl $enum_typeName {")
-                    out.inc
                     val fn = idToStr(attrName)
                     var nativeType = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite, cleanTypename = true)
                     var nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite)
-                    var clone = ""
+                    var suffix = ".borrow()"
                     val rc_typename = nativeTypeEx.startsWith("Rc<")
                     if (rc_typename) {
                       nativeType = s"$nativeTypeEx"
-                      clone = ".clone()"
+                      suffix = ".clone()"
                     } else
                       nativeType = s"Ref<$nativeType>"
-                    out.puts(s"pub fn $fn(&self) -> $nativeType {")
-                    out.inc
-                    out.puts("match self {")
-                    out.inc
-                    out.puts(s"$enum_typeName::$typeName(x) => x.$fn.borrow()$clone,")
-                    out.puts("_ => panic!(\"wrong variant: {:?}\", self),")
-                    out.dec
-                    out.puts("}")
-                    out.dec
-                    out.puts("}")
-                    out.dec
-                    out.puts("}")
+                    generateDelegate(typeName, fn, nativeType, s".$fn$suffix")
                   }
                 }
               )
+            case _: BytesType =>
+              val fn = switchVariantName(id, t)
+              generateDelegate(fn, fn.toLowerCase, s"&$typeName", "")
             case _ =>
           }
         }
