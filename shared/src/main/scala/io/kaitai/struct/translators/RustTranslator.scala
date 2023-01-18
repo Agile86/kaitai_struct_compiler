@@ -397,6 +397,17 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"if ${translate(condition)} { ${remove_deref(translate(ifTrue))}$to_type } else { ${remove_deref(translate(ifFalse))}$to_type }"
     }
   }
+
+  override  def doCast(value: Ast.expr, typeName: DataType): String = {
+    val code = translate(value)
+    typeName match {
+      case bytesType: BytesType =>
+        s"$code.bytes()"
+      case _ =>
+        code
+    }
+  }
+
   override def translate(v: Ast.expr): String = {
     v match {
       case Ast.expr.EnumById(enumType, id, inType) =>
