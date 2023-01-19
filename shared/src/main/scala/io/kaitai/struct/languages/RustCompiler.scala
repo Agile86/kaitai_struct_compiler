@@ -184,10 +184,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"self_rc._root.set(_root.get());")
     out.puts(s"self_rc._parent.set(_parent.get());")
     out.puts(s"let _new_parent = SharedType::<Self>::new(self_rc.clone());")
-    out.puts(s"let _rrc = self_rc._root.get()?;")
-    out.puts(s"let _rrv = self_rc._root.get_value().borrow();")
+    out.puts(s"let _rrc = self_rc._root.get_value().borrow();")
     out.puts(s"let _prc = self_rc._parent.get_value().borrow();")
-    out.puts(s"let _r = _rrc.as_ref();")
+    out.puts(s"let _r = _rrc.as_ref().unwrap();")
 
     // If there aren't any attributes to parse, we need to end the read implementation here
     if (typeProvider.nowClass.seq.isEmpty)
@@ -537,10 +536,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     )
     out.puts(s") -> KResult<Ref<$typeName>> {")
     out.inc
-    out.puts(s"let _rrc = self._root.get()?;")
-    out.puts(s"let _rrv = self._root.get_value().borrow();")
+    out.puts(s"let _rrc = self._root.get_value().borrow();")
     out.puts(s"let _prc = self._parent.get_value().borrow();")
-    out.puts(s"let _r = _rrc.as_ref();")
+    out.puts(s"let _r = _rrc.as_ref().unwrap();")
   }
 
   override def instanceCheckCacheAndReturn(instName: InstanceIdentifier,
@@ -775,7 +773,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       }
       if (!(t.startsWith("Vec<") || t.startsWith("Rc<")) && t.contains("Rc<"))
         byref = s"$byref*"
-      s"$byref${translator.translate(a)}$try_into"
+      var translated = translator.translate(a)
+      if (translated == "_r") // _root
+        translated = "*_rrc"
+      s"$byref$translated$try_into"
     }, "", ", ", "")
   }
 

@@ -73,8 +73,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (memberFound.isDefined) {
         val spec = memberFound.get
         spec match {
-          case _: ValueInstanceSpec | _: ParseInstanceSpec =>
+          case _: ParseInstanceSpec =>
             s"$s(${privateMemberName(IoIdentifier)})?"
+          case vis: ValueInstanceSpec =>
+            val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
+            val refOpt = "^Option<.*".r
+            aType match {
+              case refOpt() => s"$s(${privateMemberName(IoIdentifier)})?.as_ref().unwrap()"
+              case _ => s"$s(${privateMemberName(IoIdentifier)})?"
+            }
           case as: AttrSpec =>
             val code = s"$s()"
             val aType = RustCompiler.kaitaiTypeToNativeType(Some(as.id), provider.nowClass, as.dataTypeComposite)
@@ -89,6 +96,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                   code
               case _ => code
             }
+            /*
+            case pd: ParamDefSpec =>
+              val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
+              val refOpt = "^Option<.*".r
+              aType match {
+                case refOpt() => s"$s().as_ref().unwrap()"
+                case _ => s"$s()"
+              }
+            case pis: ParseInstanceSpec =>
+              //s"$s(${privateMemberName(IoIdentifier)})?"
+              val aType = RustCompiler.kaitaiTypeToNativeType(Some(pis.id), provider.nowClass, pis.dataTypeComposite)
+              val refOpt = "^Option<.*".r
+              aType match {
+                case refOpt() => s"$s(${privateMemberName(IoIdentifier)})?.as_ref().unwrap()"
+                case _ => s"$s(${privateMemberName(IoIdentifier)})?"
+              }
+
+             */
           case pd: ParamDefSpec =>
             pd.dataType match {
               case _: NumericType | _: BooleanType | _: EnumType | _: ArrayType => s"$s()"
@@ -109,7 +134,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
 
-  def findMember(attrName: String): Option[MemberSpec] = {
+  def findMember(attrName: String, c: ClassSpec = provider.nowClass): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
 
       inClass.seq.foreach { el =>
@@ -141,7 +166,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case Identifier.PARENT | Identifier.IO =>
         None
       case _ =>
-        for { ms <- findInClass(provider.nowClass) }
+        for { ms <- findInClass(get_top_class(c)) }
           return Some(ms)
 
         provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
@@ -245,46 +270,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
-  def get_attr(cs: ClassSpec, id: String): Option[MemberSpec] = {
-    var found : Option[MemberSpec] = None
-    cs.seq.foreach { el =>
-      if (idToStr(el.id) == id) {
-        found = Some(el)
-      }
-    }
-    // look deeper
-    if (found.isEmpty) {
-      cs.types.foreach {
-        case (_, typeSpec) =>
-          found = get_attr(typeSpec, id)
-          if (found.isDefined) {
-            return found
-          }
-        }
-    }
-    found
-  }
-
-  def get_param(cs: ClassSpec, id: String): Option[MemberSpec] = {
-    var found : Option[MemberSpec] = None
-    cs.params.foreach { el =>
-      if (idToStr(el.id) == id) {
-        found = Some(el)
-      }
-    }
-    // look deeper
-    if (found.isEmpty) {
-      cs.types.foreach {
-        case (_, typeSpec) =>
-          found = get_param(typeSpec, id)
-          if (found.isDefined) {
-            return found
-          }
-        }
-    }
-    found
-  }
-
   var context_need_deref_attr = false
 
   def enum_numeric_only(dataType: DataType): Boolean = {
@@ -321,18 +306,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     if (memberFound.isDefined ) {
       val spec = memberFound.get
       spec match {
-        case _: AttrSpec =>
+        case _: AttrSpec | _: ParamDefSpec  =>
           deref = !enum_numeric_only(spec.dataTypeComposite)
         case _: ValueInstanceSpec | _: ParseInstanceSpec | _: ParamDefSpec =>
           deref = true
       }
-      deref
-    } else {
-      val tc = get_top_class(c)
-      val  found = get_param(tc, s)
-        if (found.isDefined) {
-          deref = !enum_numeric_only(found.get.dataTypeComposite)
-        }
     }
 
     deref
