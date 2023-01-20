@@ -14,6 +14,34 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   import RustCompiler._
 
+  def scanClass(cls: ClassSpec): Unit = {
+    val clsName = RustCompiler.types2class(cls.path)
+
+    for (el <- cls.seq) {
+      val typeName = RustCompiler.kaitaiTypeToNativeType(Some(el.id), cls, el.dataType)
+      val resType = s"Ref<$typeName>"
+      RustTranslator.addMember(clsName, idToStr(el.id), resType)
+    }
+
+    for (el <- cls.params) {
+      val typeName = RustCompiler.kaitaiTypeToNativeType(Some(el.id), cls, el.dataType)
+      RustTranslator.addMember(clsName, idToStr(el.id), typeName)
+    }
+
+    for ((instId, instSpec) <- cls.instances) {
+      val typeName = RustCompiler.kaitaiTypeToNativeType(Some(instId), cls, instSpec.dataType)
+      RustTranslator.addMember(RustCompiler.types2class(instSpec.path), idToStr(instId), typeName)
+    }
+
+    for (t <- cls.types) {
+      scanClass(t._2)
+    }
+  }
+
+  for(cls <- provider.asInstanceOf[ClassTypeProvider].allClasses) {
+    scanClass(cls._2)
+  }
+
   override def doByteArrayLiteral(arr: Seq[Byte]): String =
     "vec![" + arr.map(x => "%0#2xu8".format(x & 0xff)).mkString(", ") + "]"
   override def doByteArrayNonLiteral(elts: Seq[Ast.expr]): String =
@@ -69,32 +97,31 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      val memberFound = findMember(s)
+      val (memberFound, cls) = findMemberAndClass(s)
       if (memberFound.isDefined) {
         val spec = memberFound.get
+        val aType = RustTranslator.getProto(RustCompiler.types2class(spec.path.take(spec.path.size - 2)), s)
+        val refOpt = "^Option<.*".r
+
         spec match {
           case _: ParseInstanceSpec =>
             s"$s(${privateMemberName(IoIdentifier)})?"
           case vis: ValueInstanceSpec =>
-            val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
-            val refOpt = "^Option<.*".r
-            aType match {
-              case refOpt() => s"$s(${privateMemberName(IoIdentifier)})?.as_ref().unwrap()"
-              case _ => s"$s(${privateMemberName(IoIdentifier)})?"
-            }
+            val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), cls.get, vis.dataTypeComposite)
+            if (refOpt.findFirstIn(aType).isDefined)
+              unwrap(s"$s(${privateMemberName(IoIdentifier)})")
+            else
+              s"$s(${privateMemberName(IoIdentifier)})?"
+
           case as: AttrSpec =>
             val code = s"$s()"
-            val aType = RustCompiler.kaitaiTypeToNativeType(Some(as.id), provider.nowClass, as.dataTypeComposite)
-            val refOpt = "Option<[^>]+>$".r
-            aType match {
-              //case "String" => s"$code.as_str()"
-              //case "Vec<u8>" => s"$code.as_slice()"
-              case refOpt() =>
-                if (!enum_numeric_only(as.dataTypeComposite))
-                  unwrap(s"$code")
-                else
-                  code
-              case _ => code
+            if (aType.isDefined) {
+              if (refOpt.findFirstIn(aType.get).isDefined && !enum_numeric_only(as.dataTypeComposite))
+                unwrap(s"$code")
+              else
+                code
+            } else {
+              code
             }
             /*
             case pd: ParamDefSpec =>
@@ -119,7 +146,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               case _: NumericType | _: BooleanType | _: EnumType | _: ArrayType => s"$s()"
               case _: CalcUserType =>
                 val code = s"$s()"
-                val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
+                val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), cls.get, pd.dataTypeComposite)
                 if (!aType.startsWith("Rc<"))
                   unwrap(s"$code")
                 else
@@ -135,6 +162,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   def findMember(attrName: String, c: ClassSpec = provider.nowClass): Option[MemberSpec] = {
+    findMemberAndClass(attrName, c)._1
+  }
+
+  def findMemberAndClass(attrName: String, c: ClassSpec = provider.nowClass): (Option[MemberSpec], Option[ClassSpec]) = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
 
       inClass.seq.foreach { el =>
@@ -164,16 +195,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
     val attr = attrName match {
       case Identifier.PARENT | Identifier.IO =>
-        None
+        (None, None)
       case _ =>
-        for { ms <- findInClass(get_top_class(c)) }
-          return Some(ms)
+//        for { ms <- findInClass(get_top_class(c)) }
+//          return Some(ms)
 
         provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
           for { ms <- findInClass(cls._2) }
-            return Some(ms)
+            return (Some(ms), Some(cls._2))
         }
-        None
+        (None, None)
     }
     attr
   }
@@ -499,4 +530,26 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"${ensure_deref(translate(a))}.iter().max().ok_or(KError::EmptyIterator)?"
     }
   }
+}
+
+object RustTranslator {
+  def makeKey(memType: String, memName: String): String = memType + ":" + memName
+
+  def addMember(memType: String, memName: String, proto: String): Unit = {
+    val key = makeKey(memType, memName)
+    println(s"addMember: $key -> $proto")
+    prototypes(key) = proto
+  }
+
+  def getProto(memType: String, memName: String): Option[String] = {
+    val k = makeKey(memType, memName)
+    println(k)
+    prototypes.get(k)
+  }
+
+//  def getTypes(memName: String): List[String] = {
+//    val types =
+//  }
+
+  private val prototypes = collection.mutable.Map[String, String]()
 }
