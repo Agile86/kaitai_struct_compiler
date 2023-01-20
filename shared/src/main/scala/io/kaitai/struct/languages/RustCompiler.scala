@@ -379,6 +379,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"S::process_xor_one(&$srcExpr, ${expression(xorValue)})"
           case _: BytesType =>
             s"S::process_xor_many(&$srcExpr, &${translator.remove_deref(expression(xorValue))})"
+          case _ => ???
         }
       case ProcessZlib =>
         s"S::process_zlib(&$srcExpr)"
@@ -1193,6 +1194,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           excludeOptionWrapper = true
         )
       case t: ArrayType => s"Arr${switchVariantName(id, t.elType)}"
+      case _ => ???
     }
 
   override def ksErrorName(err: io.kaitai.struct.datatype.KSError): String =
@@ -1230,6 +1232,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               s"($io.read_${inst.apiCall(defEndian)}()? as i64).try_into()?"
             case BitsType(width: Int, bitEndian) =>
               s"($io.read_bits_int_${bitEndian.toSuffix}($width)? as i64).try_into()?"
+            case _ => ???
           }
         handleAssignment(id, expr, rep, isRaw)
       case _ =>
@@ -1361,6 +1364,7 @@ object RustCompiler
 
       case KaitaiStreamType => kstreamName
       case CalcKaitaiStructType => kstructUnitName
+      case _ => ???
     }
 
   def kaitaiPrimitiveToNativeType(attrType: DataType): String = attrType match {
