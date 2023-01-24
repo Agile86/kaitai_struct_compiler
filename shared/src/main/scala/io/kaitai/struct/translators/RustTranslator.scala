@@ -17,7 +17,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   import RustCompiler._
 
   def scanClass(cls: ClassSpec): Unit = {
-    val clsName = RustCompiler.types2class(cls.path)
+    val clsName = RustCompiler.types2class( if(!cls.isTopLevel)
+                                              cls.name
+                                            else
+                                              cls.seq(0).dataType.asInstanceOf[UserType].classSpec.get.name)
 
     for (el <- cls.seq) {
       val (resType, _) = RustCompiler.attrProto(el.id, cls, el.dataTypeComposite)
@@ -94,25 +97,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   def unwrap(s: String): String = s + ".as_ref().unwrap()"
+  var lastResult: String = ""
+  var callTranslateDepth: Int = 0
+  val reNestedType ="(?:[^<]*<)*([^>]*)>*".r
+  val reRefOpt = "^Ref<Option<.*".r
 
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
     case _ =>
-      val attrs = collectAttrs(s)
-      for(attr <- attrs)
-        println(attr)
       val memberFound = findMember(s)
       if (memberFound.isDefined) {
         val spec = memberFound.get
-        val aType = RustTranslator.getProto(RustCompiler.types2class(spec.path.take(spec.path.size - 2)), s)
-        val refOpt = "^Ref<Option<.*".r
 
         spec match {
           case _: ParseInstanceSpec =>
             s"$s(${privateMemberName(IoIdentifier)})?"
           case vis: ValueInstanceSpec =>
             val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
-            if (refOpt.findFirstIn(aType).isDefined)
+            if (reRefOpt.findFirstIn(aType).isDefined)
               unwrap(s"$s(${privateMemberName(IoIdentifier)})")
             else
               s"$s(${privateMemberName(IoIdentifier)})?"
@@ -120,11 +122,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           case as: AttrSpec =>
             val code = s"$s()"
             val types = RustTranslator.getTypes(s)
+            val typeFound = RustTranslator.getProto(RustCompiler.types2class(as.dataType.asInstanceOf[UserType].classSpec.get.name), s)
+            val aType = if(typeFound.isDefined) typeFound.get else ""
+            val className = lastResult
+            val reNestedType(nestedType) = if(aType.nonEmpty) aType else "<>"
+            lastResult = nestedType
 
             def checkOption(typ: String) = {
-              val proto = RustTranslator.getProto(typ, s).get
+              val proto = RustTranslator.getProto(typ, s).getOrElse("")
               if (typ.nonEmpty &&
-                  refOpt.findFirstIn(proto).isDefined &&
+                  reRefOpt.findFirstIn(proto).isDefined &&
                   !enum_numeric_only(as.dataTypeComposite))
                 unwrap(s"$code")
               else
@@ -137,13 +144,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               case 1 =>
                 checkOption(types.head)
               case _ =>
-                val dType = detectType(RustTranslator.expressions.head)
-                val ut = if(dType.isInstanceOf[UserType])
-                            dType.asInstanceOf[UserType]
-                          else
-                            as.dataType.asInstanceOf[UserType] //???
-                val className = RustCompiler.types2class(ut.classSpec.get.path)
-
                 checkOption(className)
             }
             /*
@@ -174,7 +174,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                   unwrap(s"$code")
                 else
                   code
-              case _ => unwrap(s"$s()")
+              case _ =>
+                unwrap(s"$s()")
             }
           case _ =>
             s"$s()"
@@ -468,9 +469,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def translate(v: Ast.expr): String = {
-
-    RustTranslator.expressions.push(v)
-
+    callTranslateDepth += 1
     val result = v match {
       case Ast.expr.EnumById(enumType, id, inType) =>
         id match {
@@ -490,8 +489,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case _ =>
         super.translate(v)
     }
+    callTranslateDepth -= 1
+    if(callTranslateDepth == 0)
+      lastResult = ""
 
-    RustTranslator.expressions.pop()
     result
   }
 
@@ -623,5 +624,4 @@ object RustTranslator {
   }
 
   private val prototypes = mutable.Map[String, String]()
-  val expressions: mutable.Stack[Ast.expr] = mutable.Stack()
 }
