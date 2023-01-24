@@ -1132,15 +1132,9 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                   val attrName = attr.id
                   if (attrs_set.add(idToStr(attrName))) {
                     val fn = idToStr(attrName)
-                    var nativeType = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite, cleanTypename = true)
-                    var nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite)
-                    var suffix = ".borrow()"
-                    val rc_typename = nativeTypeEx.startsWith("Rc<")
-                    if (rc_typename) {
-                      nativeType = s"$nativeTypeEx"
-                      suffix = ".clone()"
-                    } else
-                      nativeType = s"Ref<$nativeType>"
+                    val cls = typeProvider.nowClass
+                    val dType = attr.dataTypeComposite
+                    val (nativeType, suffix) = attrProto(attrName, cls, dType)
                     generateDelegate(typeName, fn, nativeType, s".$fn$suffix")
                   }
                 }
@@ -1392,5 +1386,18 @@ object RustCompiler
 
     case ArrayTypeInStream(inType) => s"Vec<${kaitaiPrimitiveToNativeType(inType)}>"
     case _ => s"kaitaiPrimitiveToNativeType '${attrType.toString}' ???"
+  }
+
+  def attrProto(attrName: Identifier, cls: ClassSpec, dType: DataType): (String, String) = {
+    var nativeType = kaitaiTypeToNativeType(Some(attrName), cls, dType, cleanTypename = true)
+    val nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), cls, dType)
+    var suffix = ".borrow()"
+    val rc_typename = nativeTypeEx.startsWith("Rc<")
+    if (rc_typename) {
+      nativeType = s"$nativeTypeEx"
+      suffix = ".clone()"
+    } else
+      nativeType = s"Ref<$nativeType>"
+    (nativeType, suffix)
   }
 }
