@@ -20,7 +20,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val clsName = RustCompiler.types2class( if(!cls.isTopLevel)
                                               cls.name
                                             else
-                                              cls.seq(0).dataType.asInstanceOf[UserType].classSpec.get.name)
+                                              cls.seq.head.dataType.asInstanceOf[UserType].classSpec.get.name)
 
     for (el <- cls.seq) {
       val (resType, _) = RustCompiler.attrProto(el.id, cls, el.dataTypeComposite)
@@ -96,11 +96,12 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
   }
 
+  private var lastResult: String = ""
+  private var callTranslateDepth: Int = 0
+  private val reNestedType ="(?:[^<]*<)*([^>]*)>*".r
+  private val reRefOpt = "^Ref<Option<.*".r
+
   def unwrap(s: String): String = s + ".as_ref().unwrap()"
-  var lastResult: String = ""
-  var callTranslateDepth: Int = 0
-  val reNestedType ="(?:[^<]*<)*([^>]*)>*".r
-  val reRefOpt = "^Ref<Option<.*".r
 
   override def doName(s: String): String = s match {
     case Identifier.PARENT => s
@@ -122,30 +123,25 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           case as: AttrSpec =>
             val code = s"$s()"
             val types = RustTranslator.getTypes(s)
-            val typeFound = RustTranslator.getProto(RustCompiler.types2class(as.dataType.asInstanceOf[UserType].classSpec.get.name), s)
-            val aType = if(typeFound.isDefined) typeFound.get else ""
-            val className = lastResult
-            val reNestedType(nestedType) = if(aType.nonEmpty) aType else "<>"
+
+            val aType = types.size match {
+              case 0 =>
+                return code
+              case 1 =>
+                types.head
+              case _ =>
+                lastResult
+            }
+
+            val proto = RustTranslator.getProto(aType, s).getOrElse("")
+            val reNestedType(nestedType) = if(proto.nonEmpty) proto else "<>"
             lastResult = nestedType
 
-            def checkOption(typ: String) = {
-              val proto = RustTranslator.getProto(typ, s).getOrElse("")
-              if (typ.nonEmpty &&
-                  reRefOpt.findFirstIn(proto).isDefined &&
-                  !enum_numeric_only(as.dataTypeComposite))
-                unwrap(s"$code")
-              else
-                code
-            }
+            if (reRefOpt.findFirstIn(proto).isDefined && !enum_numeric_only(as.dataTypeComposite))
+              unwrap(code)
+            else
+              code
 
-            types.size match {
-              case 0 =>
-                code
-              case 1 =>
-                checkOption(types.head)
-              case _ =>
-                checkOption(className)
-            }
             /*
             case pd: ParamDefSpec =>
               val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
@@ -590,7 +586,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 }
 
 object RustTranslator {
-  def makeKey(memType: String, memName: String): String = memType + ":" + memName
+  def makeKey(memType: String, memName: String): String
+    = memType + ":" + memName
 
   def splitKey(key: String): (String, String) =
     if (key.contains(":")) {
