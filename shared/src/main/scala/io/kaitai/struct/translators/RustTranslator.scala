@@ -17,10 +17,20 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   import RustCompiler._
 
   def scanClass(cls: ClassSpec): Unit = {
-    val clsName = RustCompiler.types2class( if(!cls.isTopLevel)
-                                              cls.name
-                                            else
-                                              cls.seq.head.dataType.asInstanceOf[UserType].classSpec.get.name)
+    val clsNames =  (cls.isTopLevel, cls.seq.isEmpty) match {
+      case (true, true) =>
+        Nil
+      case (true, false) =>
+        cls.seq.head.dataType match {
+          case ut: UserType =>
+            ut.classSpec.get.name
+          case _ =>
+            Nil
+        }
+      case (false, _) =>
+        cls.name
+    }
+    val clsName = RustCompiler.types2class(clsNames)
 
     for (el <- cls.seq) {
       val (resType, _) = RustCompiler.attrProto(el.id, cls, el.dataTypeComposite)
@@ -399,7 +409,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case Identifier.ITERATOR2 => "_tmpb"
     case Identifier.INDEX => "_i"
     case Identifier.IO => s"${RustCompiler.privateMemberName(IoIdentifier)}"
-    case Identifier.ROOT => "_rrv"
+    case Identifier.ROOT => "_rrc"
     case Identifier.PARENT => unwrap("_prc")
     case _ =>
       val n = doName(s)
@@ -586,6 +596,34 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 }
 
 object RustTranslator {
+  private class ConsoleRedirect extends java.io.Writer {
+    override def write(cbuf: Array[Char], off: Int, len: Int): Unit =
+      print(cbuf.slice(off, len).mkString)
+    override def flush(): Unit = ()
+    override def close(): Unit = ()
+  }
+
+  private class PrinterAutoflush(file: java.io.File) extends java.io.PrintWriter(file) {
+    override def write(s: String): Unit = {
+      super.write(s)
+      flush()
+    }
+  }
+
+  lazy val logWriter: java.io.Writer = {
+    val envLog = sys.env.get("LOG_RUST")
+    if (envLog.isDefined) {
+      envLog.get match {
+        case "" => null
+        case "CONSOLE" => new ConsoleRedirect()
+        case fileName => new PrinterAutoflush(new java.io.File(fileName) )
+      }
+    } else {
+      null
+    }
+  }
+  def log(msg: String): Unit = if (logWriter != null) logWriter.write(msg)
+
   def makeKey(memType: String, memName: String): String
     = memType + ":" + memName
 
@@ -599,15 +637,15 @@ object RustTranslator {
 
   def addMember(memType: String, memName: String, proto: String): Unit = {
     val key = makeKey(memType, memName)
-    println(s"addMember: $key -> $proto")
+    log(s"addMember: $key -> $proto\n")
     prototypes(key) = proto
   }
 
   def getProto(memType: String, memName: String): Option[String] = {
     val k = makeKey(memType, memName)
-    print(k)
+    log(k)
     val proto = prototypes.get(k)
-    println(s" -> $proto")
+    log(s" -> $proto\n")
     proto
   }
 
