@@ -191,39 +191,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
 
-  def collectAttrs(attrName: String): List[MemberSpec] = {
-    val result = collection.mutable.ListBuffer[MemberSpec]()
-
-    def collectInClass(inClass: ClassSpec): Unit = {
-      inClass.seq.foreach { el =>
-        if (idToStr(el.id) == attrName) {
-          result.append(el)
-        }
-      }
-
-      inClass.params.foreach { el =>
-        if (idToStr(el.id) == attrName) {
-          result.append(el)
-        }
-      }
-
-      inClass.instances.foreach { case (instName, instSpec) =>
-        if (idToStr(instName) == attrName) {
-          result.append(instSpec)
-        }
-      }
-
-      for (t <- inClass.types)
-        collectInClass(t._2)
-    }
-
-    provider.asInstanceOf[ClassTypeProvider].allClasses.foreach { cls =>
-      collectInClass(cls._2)
-    }
-
-    result.toList
-  }
-
   def findMember(attrName: String, c: ClassSpec = provider.nowClass): Option[MemberSpec] = {
     def findInClass(inClass: ClassSpec): Option[MemberSpec] = {
 
@@ -295,15 +262,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def anyField(value: expr, attrName: String): String = {
-    def addUnwrap(predicate: Boolean, suffix: String): String = {
+    def addSuffix(predicate: Boolean, suffix: String): String = {
       if (predicate) suffix else ""
     }
     val t = translate(value) +
-              addUnwrap(value.isInstanceOf[Ast.expr.Name] &&
+              addSuffix(value.isInstanceOf[Ast.expr.Name] &&
                         (value.asInstanceOf[Ast.expr.Name].id.name == Identifier.ROOT),
                 unwrap(""))
     val a = doName(attrName) +
-              addUnwrap(attrName == Identifier.PARENT,
+              addSuffix(attrName == Identifier.PARENT,
                 unwrap(".get_value().borrow()"))
 
     var r = ""
@@ -421,9 +388,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
   }
   override def doEnumCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    //context_need_deref_attr = true
     val code = s"${translate(left)} ${cmpOp(op)} ${translate(right)}"
-    //context_need_deref_attr = false
     code
   }
 
@@ -434,10 +399,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     s"${RustCompiler.types2class(enumTypeAbs)}::${Utils.upperCamelCase(label)}"
 
   override def doStrCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
-    // val l = translate(left)
-    // val r = translate(right)
-    // val asStr = if (l.endsWith(".as_str()") && r.endsWith(")?")) ".as_str()" else ""
-    // s"$l ${cmpOp(op)} $r$asStr"
     s"${ensure_deref(translate(left))} ${cmpOp(op)} ${remove_deref(translate(right))}.to_string()"
   }
 
