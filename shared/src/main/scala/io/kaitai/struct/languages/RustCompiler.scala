@@ -49,6 +49,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     outHeader.puts("#![allow(non_camel_case_types)]")
     outHeader.puts("#![allow(irrefutable_let_patterns)]")
     outHeader.puts("#![allow(unused_comparisons)]")
+    outHeader.puts("#![allow(unreachable_patterns)]")
     outHeader.puts
     outHeader.puts("extern crate kaitai;")
 
@@ -1135,7 +1136,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
                     val cls = typeProvider.nowClass
                     val dType = attr.dataTypeComposite
                     val (nativeType, suffix) = attrProto(attrName, cls, dType)
-                    generateDelegate(typeName, fn, nativeType, s".$fn$suffix")
+                    generateDelegate(typeName, fn, nativeType, s".$fn()$suffix")
                   }
                 }
               )
@@ -1391,7 +1392,7 @@ object RustCompiler
   def attrProto(attrName: Identifier, cls: ClassSpec, dType: DataType): (String, String) = {
     var nativeType = kaitaiTypeToNativeType(Some(attrName), cls, dType, cleanTypename = true)
     val nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), cls, dType)
-    var suffix = ".borrow()"
+    var suffix = ""
     val rc_typename = nativeTypeEx.startsWith("Rc<")
     if (rc_typename) {
       nativeType = s"$nativeTypeEx"
