@@ -237,7 +237,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _: NumericType => // leave unchanged
       case _ => enum_only_numeric = false
     }
-    var fn = idToStr(attrName)
+    var fn = enumAttrName(attrName, typeProvider.nowClass)
     if (switch_typename && enum_only_numeric) {
       out.puts(s"pub fn $fn(&self) -> usize {")
       out.inc
@@ -1121,8 +1121,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts("}")
     }
     {
+      //renameEnumAttr = true
       val types_set = scala.collection.mutable.Set[String]()
-      val attrs_set = scala.collection.mutable.Set[String]()
       types.foreach(t => {
         val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t, cleanTypename = true)
         if (types_set.add(typeName)) {
@@ -1131,13 +1131,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               ut.classSpec.get.seq.foreach(
                 attr => {
                   val attrName = attr.id
-                  if (attrs_set.add(idToStr(attrName))) {
-                    val fn = idToStr(attrName)
-                    val cls = typeProvider.nowClass
-                    val dType = attr.dataTypeComposite
-                    val (nativeType, suffix) = attrProto(attrName, cls, dType)
-                    generateDelegate(typeName, fn, nativeType, s".$fn()$suffix")
-                  }
+                  val fn = enumAttrName(attrName, ut.classSpec.get)
+                  val cls = typeProvider.nowClass
+                  val dType = attr.dataTypeComposite
+                  val (nativeType, suffix) = attrProto(attrName, cls, dType)
+                  generateDelegate(typeName, fn, nativeType, s".$fn()$suffix")
                 }
               )
             case _: BytesType =>
@@ -1260,6 +1258,23 @@ object RustCompiler
   override def kstreamName = "KStream"
 
   var in_reader = false
+  var renameEnumAttr: Boolean = false
+
+  def enumAttrName(attrName: Identifier, cls: ClassSpec): String = {
+    val name = idToStr(attrName)
+    if (renameEnumAttr) {
+      val newName = s"${cls.name.last}_$name"
+      RustTranslator.renamedAttrs(RustTranslator.makeKey(RustCompiler.types2class(cls.name), idToStr(attrName))) = newName
+      newName
+    } else {
+      val key = RustTranslator.makeKey(types2class(cls.name), idToStr(attrName))
+      val newName = RustTranslator.renamedAttrs.get(key)
+      if (newName.isDefined)
+        newName.get
+      else
+        name
+    }
+  }
 
   def self_name(): String = {
     if (in_reader) "self_rc" else "self"
