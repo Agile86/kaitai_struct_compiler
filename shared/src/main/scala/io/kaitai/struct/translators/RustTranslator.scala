@@ -11,6 +11,7 @@ import io.kaitai.struct.translators.RustTranslator.makeKey
 import io.kaitai.struct.{ClassTypeProvider, RuntimeConfig, Utils}
 
 import scala.collection.mutable
+import scala.util.control.Breaks.{break, breakable}
 
 class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   extends BaseTranslator(provider) {
@@ -44,26 +45,30 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       el.dataType match {
         case st: SwitchType =>
           RustCompiler.renameEnumAttr = true
-          for (kv <- st.cases) {
-            val label = kv._1 match {
-              case ebl: Ast.expr.EnumByLabel => ebl.label.name
-              case _ => ???
+          breakable {
+            for (kv <- st.cases) {
+              val label = kv._1 match {
+                case ebl: Ast.expr.EnumByLabel => ebl.label.name
+                case in: Ast.expr.IntNum => in.n.toString
+                case _ => break
+              }
+              val caseCls = kv._2 match {
+                case ut: UserType => ut.classSpec.get
+                case _ => ???
+              }
+              val caseTypeOpt = cls.types.get(label)
+              val caseType = if (caseTypeOpt.isDefined) caseTypeOpt.get else caseCls
+              val caseAs = caseType.seq.head
+              val caseId = caseAs.id
+              val caseName = idToStr(caseId)
+              val reNestedType(resClsName) = resType
+              val (caseResType, _) = RustCompiler.attrProto(caseId, caseCls, caseAs.dataTypeComposite)
+              val enumName = RustCompiler.enumAttrName(caseId, caseCls)
+              RustTranslator.renamedAttrs(RustTranslator.makeKey(resClsName, caseName)) = enumName
+              RustTranslator.addMember(resClsName, caseName, caseResType)
+              RustTranslator.addMember(resClsName, enumName, caseResType)
+              RustTranslator.addMember(RustCompiler.types2class(clsNames ::: List(label)), caseName, caseResType)
             }
-            val caseCls = kv._2 match {
-              case ut: UserType => ut.classSpec.get
-              case _ => ???
-            }
-            val caseType = cls.types(label)
-            val caseAs = caseType.seq.head
-            val caseId = caseAs.id
-            val caseName = idToStr(caseId)
-            val reNestedType(resClsName) = resType
-            val (caseResType, _) = RustCompiler.attrProto(caseId, caseCls, caseAs.dataTypeComposite)
-            val enumName = RustCompiler.enumAttrName(caseId, caseCls)
-            RustTranslator.renamedAttrs(RustTranslator.makeKey(resClsName, caseName)) = enumName
-            RustTranslator.addMember(resClsName, caseName, caseResType)
-            RustTranslator.addMember(resClsName, enumName, caseResType)
-            RustTranslator.addMember(RustCompiler.types2class(clsNames ::: List(label)), caseName, caseResType)
           }
           RustCompiler.renameEnumAttr = false
         case _ =>
@@ -462,6 +467,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     typeName match {
       case _: BytesType =>
         s"$code.bytes()"
+      case cut: CalcUserType =>
+        lastResult = RustCompiler.types2class(cut.name)
+        code
       case _ =>
         code
     }
