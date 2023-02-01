@@ -50,11 +50,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               val label = kv._1 match {
                 case ebl: Ast.expr.EnumByLabel => ebl.label.name
                 case in: Ast.expr.IntNum => in.n.toString
+                case lst: Ast.expr.List => lst.elts.mkString
+                case str: Ast.expr.Str => str.s
                 case _ => break
               }
               val caseCls = kv._2 match {
                 case ut: UserType => ut.classSpec.get
-                case _ => ???
+                case _ => break
               }
               val caseTypeOpt = cls.types.get(label)
               val caseType = if (caseTypeOpt.isDefined) caseTypeOpt.get else caseCls
@@ -67,7 +69,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               RustTranslator.renamedAttrs(RustTranslator.makeKey(resClsName, caseName)) = enumName
               RustTranslator.addMember(resClsName, caseName, caseResType)
               RustTranslator.addMember(resClsName, enumName, caseResType)
-              RustTranslator.addMember(RustCompiler.types2class(clsNames ::: List(label)), caseName, caseResType)
+              if (clsNames.nonEmpty)
+                RustTranslator.addMember(RustCompiler.types2class(clsNames ::: List(label)), caseName, caseResType)
             }
           }
           RustCompiler.renameEnumAttr = false
@@ -170,7 +173,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
           case as: AttrSpec =>
             val types = RustTranslator.getTypes(s)
             val aType = if (types.size == 1) types.head else lastResult
-            val newName = RustTranslator.renamedAttrs.get(makeKey(aType, s))
+            val key = makeKey(if (aType.isEmpty) types.head else aType, s)
+            val newName = RustTranslator.renamedAttrs.get(key)
             val code = if (newName.isDefined) s"${newName.get}()" else s"$s()"
             val proto = RustTranslator.getProto(aType, s).getOrElse("")
             val reNestedType(nestedType) = if(proto.nonEmpty) proto else "<>"
