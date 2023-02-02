@@ -6,6 +6,7 @@ import io.kaitai.struct.exprlang.Ast
 import io.kaitai.struct.format._
 import io.kaitai.struct.languages.RustCompiler
 import io.kaitai.struct.languages.components.ExtraAttrs
+import io.kaitai.struct.translators.RustTranslator
 
 import scala.collection.mutable.ListBuffer
 
@@ -15,8 +16,10 @@ class RustClassCompiler(
   config: RuntimeConfig
 ) extends ClassCompiler(classSpecs, topClass, config, RustCompiler) {
 
+  var callCompileDepth = 0
   override def compileClass(curClass: ClassSpec): Unit = {
     provider.nowClass = curClass
+    callCompileDepth += 1
 
     val extraAttrs = ListBuffer[AttrSpec]()
     extraAttrs += AttrSpec(List(), IoIdentifier, KaitaiStreamType)
@@ -50,7 +53,12 @@ class RustClassCompiler(
     // Recursive types
     compileSubclasses(curClass)
 
-    RustCompiler.renameEnumAttr = false
+    callCompileDepth -= 1
+    if (callCompileDepth == 0) {
+      RustCompiler.renameEnumAttr = false
+      RustTranslator.renamedAttrs.clear()
+      RustTranslator.prototypes.clear()
+    }
   }
 
   def compileReadFunction(curClass: ClassSpec): Unit = {
