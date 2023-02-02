@@ -1264,10 +1264,10 @@ object RustCompiler
     val name = idToStr(attrName)
     if (renameEnumAttr) {
       val newName = s"${cls.name.last}_$name"
-      RustTranslator.renamedAttrs(RustTranslator.makeKey(RustCompiler.types2class(cls.name), idToStr(attrName))) = newName
+      RustTranslator.renamedAttrs(RustTranslator.makeKey(RustCompiler.types2class(cls.name), name)) = newName
       newName
     } else {
-      val key = RustTranslator.makeKey(types2class(cls.name), idToStr(attrName))
+      val key = RustTranslator.makeKey(types2class(cls.name), name)
       val newName = RustTranslator.renamedAttrs.get(key)
       if (newName.isDefined)
         newName.get
