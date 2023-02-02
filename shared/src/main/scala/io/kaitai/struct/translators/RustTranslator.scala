@@ -171,9 +171,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               s"$s(${privateMemberName(IoIdentifier)})?"
 
           case as: AttrSpec =>
-            val types = RustTranslator.getTypes(s)
-            val aType = if (types.size == 1) types.head else lastResult
-            val key = makeKey(if (aType.isEmpty) types.head else aType, s)
+            val aType = if (lastResult.nonEmpty) {
+                          lastResult
+                        } else {
+                          val types = RustTranslator.getTypes(s)
+                          if (types.size == 1) types.head else ""
+                        }
+            val key = makeKey(aType, s)
             val newName = RustTranslator.renamedAttrs.get(key)
             val code = if (newName.isDefined) s"${newName.get}()" else s"$s()"
             val proto = RustTranslator.getProto(aType, s).getOrElse("")
@@ -664,6 +668,6 @@ object RustTranslator {
     types.toList
   }
 
-  private val prototypes = mutable.Map[String, String]()
+  val prototypes: mutable.Map[String, String] = mutable.Map[String, String]()
   val renamedAttrs: mutable.Map[String, String] = mutable.Map[String, String]()
 }
