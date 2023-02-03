@@ -299,18 +299,40 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   }
 
   override def anyField(value: expr, attrName: String): String = {
-    def addSuffix(predicate: Boolean, suffix: String): String = {
-      if (predicate) suffix else ""
+    def addSuffix(doAdd: Boolean, suffix: String): String = {
+      if (doAdd) suffix else ""
     }
-    val t = translate(value) +
-              addSuffix(value.isInstanceOf[Ast.expr.Name] &&
-                        (value.asInstanceOf[Ast.expr.Name].id.name == Identifier.ROOT),
-                unwrap(""))
-    val a = doName(attrName) +
-              addSuffix(attrName == Identifier.PARENT,
-                unwrap(".get_value().borrow()"))
+    def needUnwrap(): Boolean = {
+      value match {
+        case name: Ast.expr.Name =>
+          name.id.name == Identifier.ROOT
+        case ctt: Ast.expr.CastToType =>
+          ctt.value match {
+            case attr: Ast.expr.Attribute =>
+              attr.attr match {
+                case id: Ast.identifier =>
+                  val proto = RustTranslator.getProto("", id.name)
+                  if (proto.isDefined)
+                    return reRefOpt.findFirstIn(proto.get).isDefined
+                  else {
+                    false
+                  }
+                case _ =>
+                  false
+              }
+            case _ =>
+              false
+          }
+        case _ =>
+          false
+      }
+      false
+    }
 
+    val t = translate(value) + addSuffix(needUnwrap(), unwrap(""))
+    val a = doName(attrName) + addSuffix(attrName == Identifier.PARENT, unwrap(".get_value().borrow()"))
     var r = ""
+
     if (need_deref(attrName)) {
       if (t.charAt(0) == '*') {
         r = s"$t.$a"
