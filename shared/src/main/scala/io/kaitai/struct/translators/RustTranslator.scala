@@ -346,11 +346,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         r = s"$t.$a"
       }
     }
-    attrName match {
-      case Identifier.IO =>
-        r = r.replace("()._io()", "_raw()")
-      case _ =>
-    }
     r
   }
 
@@ -367,6 +362,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       s"&$s"
     } else {
       s
+    }
+  }
+
+  def ensure_amp(s: String): String = {
+    if (s.charAt(0) == '&') {
+      s
+    } else {
+      s"&$s"
     }
   }
 
@@ -501,7 +504,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         lastResult = RustCompiler.types2class(cut.name)
         code
       case _ =>
-        code
+        val t1_type = detectType(value)
+        val t1 = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, t1_type, excludeOptionWrapperAlways = true)
+        val t2 = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, typeName, excludeOptionWrapperAlways = true)
+        if (t1 != t2 && t1_type != CalcFloatType && t1_type != CalcIntType) {
+          s"Into::<$t2>::into(&${translate(value)})"
+        } else {
+          code
+        }
     }
   }
 
