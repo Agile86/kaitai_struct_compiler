@@ -191,7 +191,8 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             val code = if (newName.isDefined) s"${newName.get}()" else s"$s()"
             val proto = RustTranslator.getProto(aType, s).getOrElse("")
             val reNestedType(nestedType) = if(proto.nonEmpty) proto else "<>"
-            lastResult = nestedType
+            if (nestedType.nonEmpty)
+              lastResult = nestedType
 
             if (reRefOpt.findFirstIn(proto).isDefined && !enum_numeric_only(as.dataTypeComposite))
               unwrap(code)
@@ -524,13 +525,13 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     val ct = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, castTypeName, excludeOptionWrapperAlways = true)
     var into = false
     castTypeName match {
-      case cut: UserType =>
-        lastResult = RustCompiler.types2class(cut.name)
-        into = true
+      case _: UserType =>  into = true
       case CalcBytesType => into = true;
       case _ =>
     }
     if (into) {
+      val reNestedType(resClsName) = ct
+      lastResult = resClsName
       s"Into::<$ct>::into(&${translate(value)})"
     } else {
       s"(${translate(value)} as $ct)"
