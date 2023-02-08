@@ -21,22 +21,33 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
   private val reNestedType ="(?:[^<]*<)*([^>]*)>*".r
 
   def scanClass(cls: ClassSpec): Unit = {
-    val clsNames =
-      (cls.isTopLevel, cls.seq.isEmpty) match {
-        case (true, true) =>
-          Nil
-        case (true, false) =>
+    val clsNames = {
+      if (cls.isTopLevel) {
+        for ((_, clsType) <- cls.types) {
+          for (el <- clsType.seq) {
+            if (el.dataType.isInstanceOf[SwitchType])
+              RustCompiler.renameEnumAttr = true
+          }
+        }
+        if (cls.seq.nonEmpty) {
           cls.seq.head.dataType match {
             case ut: UserType =>
-              ut.classSpec.get.name
+              List(ut.classSpec.get.name.head)
             case _ =>
               Nil
           }
-        case (false, _) =>
-          cls.name
+        } else {
+          Nil
+        }
+      } else {
+        cls.name
       }
+    }
     val clsName = RustCompiler.types2class(clsNames)
-    var idx = 0
+
+    for ((_, clsType) <- cls.types) {
+      scanClass(clsType)
+    }
 
     for (el <- cls.seq) {
       val (resType, _) = RustCompiler.attrProto(el.id, cls, el.dataTypeComposite)
@@ -44,7 +55,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
       el.dataType match {
         case st: SwitchType =>
-          RustCompiler.renameEnumAttr = true
           breakable {
             for (kv <- st.cases) {
               val label = kv._1 match {
@@ -73,7 +83,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 RustTranslator.addMember(RustCompiler.types2class(clsNames ::: List(label)), caseName, caseResType)
             }
           }
-          RustCompiler.renameEnumAttr = false
         case _ =>
       }
     }
@@ -85,11 +94,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
     for ((instId, instSpec) <- cls.instances) {
       val typeName = RustCompiler.kaitaiTypeToNativeType(Some(instId), cls, instSpec.dataType)
-      RustTranslator.addMember(RustCompiler.types2class(instSpec.path), idToStr(instId), typeName)
+      RustTranslator.addMember(clsName, idToStr(instId), typeName)
     }
 
-    for (t <- cls.types) {
-      scanClass(t._2)
+    if (cls.isTopLevel) {
+      RustCompiler.renameEnumAttr = false
+      for((was, ren) <- RustTranslator.renamedAttrs) {
+        RustTranslator.log(s"$was -> $ren\n")
+      }
     }
   }
 
@@ -180,19 +192,32 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               s"$s()?"
 
           case as: AttrSpec =>
-            val aType = if (lastResult.nonEmpty) {
-                          lastResult
-                        } else {
-                          val types = RustTranslator.getTypes(s)
-                          if (types.size == 1) types.head else ""
-                        }
-            val key = makeKey(aType, s)
-            val newName = RustTranslator.renamedAttrs.get(key)
+            val cls = if (RustCompiler.nowClass != null) RustCompiler.nowClass else provider.nowClass
+            var aType = types2class(cls.name)
+            var newName = RustTranslator.renamedAttrs.get(makeKey(aType, s))
+            if (newName.isEmpty) {
+              aType = lastResult
+              newName = RustTranslator.renamedAttrs.get(makeKey(aType, s))
+            }
+            if (newName.isEmpty) {
+              for(tp <- RustTranslator.getTypes(s); if newName.isEmpty) {
+                aType = tp
+                newName = RustTranslator.renamedAttrs.get(makeKey(aType, s))
+              }
+            }
             val code = if (newName.isDefined) s"${newName.get}()" else s"$s()"
-            val proto = RustTranslator.getProto(aType, s).getOrElse("")
-            val reNestedType(nestedType) = if(proto.nonEmpty) proto else "<>"
-            if (nestedType.nonEmpty)
+            var proto = RustTranslator.getProto(aType, s).getOrElse("")
+            val reNestedType(nestedType) = if(proto.nonEmpty) {
+              proto
+            } else {
+              val types = RustTranslator.getTypes(s)
+              if (types.size == 1) types.head else "<>"
+            }
+            if (nestedType.nonEmpty) {
               lastResult = nestedType
+              if (proto.isEmpty)
+                proto = RustTranslator.getProto(nestedType, s).getOrElse("")
+            }
 
             if (reRefOpt.findFirstIn(proto).isDefined && !enum_numeric_only(as.dataTypeComposite))
               unwrap(code)
@@ -340,6 +365,14 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
     val t = translate(value) + addSuffix(needUnwrap(), unwrap(""))
+    val valType = detectType(value)
+    valType match {
+      case ut: UserType =>
+        if (ut.classSpec.isDefined) {
+          RustCompiler.nowClass = ut.classSpec.get
+        }
+      case _ =>
+    }
     val a = doName(attrName) + addSuffix(attrName == Identifier.PARENT, unwrap(".get_value().borrow()"))
     var r = ""
 
@@ -531,8 +564,9 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
     if (into) {
       val reNestedType(resClsName) = ct
+      val code = translate(value)
       lastResult = resClsName
-      s"Into::<$ct>::into(&${translate(value)})"
+      s"Into::<$ct>::into(&$code)"
     } else {
       s"(${translate(value)} as $ct)"
     }
@@ -708,7 +742,7 @@ object RustTranslator {
   def getProto(memType: String, memName: String): Option[String] = {
     val k = makeKey(memType, memName)
     val key = if (renamedAttrs.contains(k)) makeKey(memType, renamedAttrs(k)) else k
-    log(key)
+    log(s"proto: $key")
     val proto = prototypes.get(key)
     log(s" -> $proto\n")
     proto
@@ -720,6 +754,11 @@ object RustTranslator {
       parts = splitKey(item._1)
       if memName == parts._2
     } yield parts._1
+
+    log(s"types for $memName:\n")
+    for(el <- types)
+      log(s"  $el\n")
+
     types.toList
   }
 
