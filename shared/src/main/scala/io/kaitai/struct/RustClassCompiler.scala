@@ -19,6 +19,7 @@ class RustClassCompiler(
   var callCompileDepth = 0
   override def compileClass(curClass: ClassSpec): Unit = {
     provider.nowClass = curClass
+    RustCompiler.nowClass = curClass
     callCompileDepth += 1
 
     val extraAttrs = ListBuffer[AttrSpec]()
