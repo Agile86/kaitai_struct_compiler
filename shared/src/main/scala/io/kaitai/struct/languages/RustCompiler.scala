@@ -206,7 +206,8 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attrType)
     }
 
-    out.puts(s"${idToStr(attrName)}: RefCell<$typeName>,")
+    val aName = enumAttrName(attrName, typeProvider.nowClass)
+    out.puts(s"$aName: RefCell<$typeName>,")
   }
 
   override def attributeReader(attrName: Identifier,
@@ -242,7 +243,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     if (switch_typename && enum_only_numeric) {
       out.puts(s"pub fn $fn(&self) -> usize {")
       out.inc
-      out.puts(s"self.${idToStr(attrName)}.borrow().as_ref().unwrap().into()")
+      out.puts(s"self.$fn.borrow().as_ref().unwrap().into()")
       out.dec
       out.puts("}")
       fn = s"${fn}_enum"
@@ -250,7 +251,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     {
       out.puts(s"pub fn $fn(&self) -> Ref<$typeName> {")
       out.inc
-      out.puts(s"self.${idToStr(attrName)}.borrow()")
+      out.puts(s"self.$fn.borrow()")
     }
     out.dec
     out.puts("}")
@@ -1291,6 +1292,7 @@ object RustCompiler
 
   var in_reader = false
   var renameEnumAttr: Boolean = false
+  var nowClass: ClassSpec = _
 
   def enumAttrName(attrName: Identifier, cls: ClassSpec): String = {
     val name = idToStr(attrName)
@@ -1317,7 +1319,8 @@ object RustCompiler
     case RootIdentifier => "_root"
     case ParentIdentifier => "_parent"
     case _ =>
-      val n = s"${self_name()}.${idToStr(id)}"
+      val aName = enumAttrName(id, nowClass)
+      val n = s"${self_name()}.$aName"
       if (writeAccess)
         s"$n.borrow_mut()"
       else
@@ -1440,6 +1443,6 @@ object RustCompiler
       suffix = ".clone()"
     } else
       nativeType = s"Ref<$nativeType>"
-    (nativeType, suffix)
+      (nativeType, suffix)
   }
 }
