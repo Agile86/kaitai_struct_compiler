@@ -555,18 +555,15 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     if(castTypeName == value_type)
       return translate(value)
 
-    val ct = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, castTypeName, excludeOptionWrapperAlways = true)
+    val ct = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, castTypeName, excludeOptionWrapper = true)
     var into = false
     castTypeName match {
-      case _: UserType =>  into = true
+      case _: UserType => into = true;
       case CalcBytesType => into = true;
       case _ =>
     }
     if (into) {
-      val reNestedType(resClsName) = ct
-      val code = translate(value)
-      lastResult = resClsName
-      s"Into::<$ct>::into(&$code)"
+      s"Into::<$ct>::into(&${translate(value)})"
     } else {
       s"(${translate(value)} as $ct)"
     }
