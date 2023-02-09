@@ -563,7 +563,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case _ =>
     }
     if (into) {
-      s"Into::<$ct>::into(&${translate(value)})"
+      val reNestedType(resClsName) = ct
+      lastResult = resClsName
+      val code = translate(value)
+      lastResult = resClsName
+      s"Into::<$ct>::into(&$code)"
     } else {
       s"(${translate(value)} as $ct)"
     }
@@ -746,17 +750,23 @@ object RustTranslator {
   }
 
   def getTypes(memName: String): List[String] = {
-    val types = for {
-      item <- prototypes
-      parts = splitKey(item._1)
-      if memName == parts._2
-    } yield parts._1
+    def colletTypes(dict: mutable.Map[String, String]) = {
+      var types = for {
+        (key, _) <- dict
+        (typ, mem) = splitKey(key)
+        if memName == mem
+      } yield typ
+      types.toList
+    }
+
+    val types = List.concat(colletTypes(prototypes),
+                    colletTypes(renamedAttrs))
 
     log(s"types for $memName:\n")
     for(el <- types)
       log(s"  $el\n")
 
-    types.toList
+    types
   }
 
   val prototypes: mutable.Map[String, String] = mutable.Map[String, String]()
