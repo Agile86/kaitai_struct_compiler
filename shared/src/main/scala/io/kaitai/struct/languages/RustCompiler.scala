@@ -1124,12 +1124,28 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       out.puts
     }
 
+    def generateDelegate(typeName: String, fn: String, nativeType: String, suffix: String): Unit = {
+      out.puts(s"impl $enum_typeName {")
+      out.inc
+      out.puts(s"pub fn $fn(&self) -> $nativeType {")
+      out.inc
+      out.puts("match self {")
+      out.inc
+      out.puts(s"$enum_typeName::$typeName(x) => x$suffix,")
+      out.puts("_ => panic!(\"wrong variant: {:?}\", self),")
+      out.dec
+      out.puts("}")
+      out.dec
+      out.puts("}")
+      out.dec
+      out.puts("}")
+    }
+
     // generate helper method with name from variant type (to convert enum into variant and call variant method inside)
     // only if there is only single variant
     // if more than 1 - Kaitai will do casting
     if (types.size == 1) {
       val types_set = scala.collection.mutable.Set[String]()
-      val attrs_set = scala.collection.mutable.Set[String]()
       types.foreach(t => {
         val typeName = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t, cleanTypename = true)
         if (types_set.add(typeName)) {
@@ -1138,33 +1154,11 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               ut.classSpec.get.seq.foreach(
                 attr => {
                   val attrName = attr.id
-                  if (attrs_set.add(idToStr(attrName))) {
-                    out.puts(s"impl $enum_typeName {")
-                    out.inc
-                    val fn = idToStr(attrName)
-                    var nativeType = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite, cleanTypename = true)
-                    var nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), typeProvider.nowClass, attr.dataTypeComposite)
-                    val typeNameEx = kaitaiTypeToNativeType(Some(id), typeProvider.nowClass, t)
-                    val x = if (typeNameEx.startsWith("Option<")) "x.as_ref().unwrap()" else "x"
-                    var clone = ""
-                    if (nativeTypeEx.startsWith("OptRc<")) {
-                      nativeType = s"$nativeTypeEx"
-                      clone = ".clone()"
-                    } else
-                      nativeType = s"Ref<$nativeType>"
-                    out.puts(s"pub fn $fn(&self) -> $nativeType {")
-                    out.inc
-                    out.puts("match self {")
-                    out.inc
-                    out.puts(s"$enum_typeName::$typeName(x) => $x.$fn.borrow()$clone,")
-                    //out.puts("_ => panic!(\"wrong variant: {:?}\", self),")
-                    out.dec
-                    out.puts("}")
-                    out.dec
-                    out.puts("}")
-                    out.dec
-                    out.puts("}")
-                  }
+                  val fn = enumAttrName(attrName, ut.classSpec.get)
+                  val cls = typeProvider.nowClass
+                  val dType = attr.dataTypeComposite
+                  val (nativeType, suffix) = attrProto(attrName, cls, dType)
+                  generateDelegate(typeName, fn, nativeType, s".$fn()$suffix")
                 }
               )
             case _: BytesType =>
@@ -1428,7 +1422,7 @@ object RustCompiler
     var nativeType = kaitaiTypeToNativeType(Some(attrName), cls, dType, cleanTypename = true)
     val nativeTypeEx = kaitaiTypeToNativeType(Some(attrName), cls, dType)
     var suffix = ""
-    val rc_typename = nativeTypeEx.startsWith("Rc<")
+    val rc_typename = nativeTypeEx.startsWith("OptRc<")
     if (rc_typename) {
       nativeType = s"$nativeTypeEx"
       suffix = ".clone()"
