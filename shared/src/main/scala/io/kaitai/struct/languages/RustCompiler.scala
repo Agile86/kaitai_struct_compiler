@@ -239,11 +239,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case _: NumericType => // leave unchanged
       case _ => enum_only_numeric = false
     }
-    var fn = enumAttrName(attrName, typeProvider.nowClass)
+    var varn = enumAttrName(attrName, typeProvider.nowClass)
+    var fn = varn
     if (switch_typename && enum_only_numeric) {
       out.puts(s"pub fn $fn(&self) -> usize {")
       out.inc
-      out.puts(s"self.$fn.borrow().as_ref().unwrap().into()")
+      out.puts(s"self.$varn.borrow().as_ref().unwrap().into()")
       out.dec
       out.puts("}")
       fn = s"${fn}_enum"
@@ -251,7 +252,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     {
       out.puts(s"pub fn $fn(&self) -> Ref<$typeName> {")
       out.inc
-      out.puts(s"self.$fn.borrow()")
+      out.puts(s"self.$varn.borrow()")
     }
     out.dec
     out.puts("}")
@@ -765,8 +766,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           if (!translator.is_copy_type(typ))
             byref = "&"
       }
-      if (!(t.startsWith("Vec<") || t.startsWith("Rc<")) && t.contains("Rc<"))
-        byref = s"$byref*"
       var translated = translator.translate(a)
       if (translated == "_r") // _root
         translated = "OptRc::new(&_rrc)"

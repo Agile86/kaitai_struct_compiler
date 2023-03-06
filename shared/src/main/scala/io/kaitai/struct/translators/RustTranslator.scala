@@ -170,7 +170,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   private var lastResult: String = ""
   private var callTranslateDepth: Int = 0
-  private val reRefOpt = "^Ref<Option<.*".r
+  private val reRefOpt = "Option<.*".r
 
   def unwrap(s: String): String = s + ".as_ref().unwrap()"
 
@@ -182,12 +182,10 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         val spec = memberFound.get
 
         spec match {
-          case _: ParseInstanceSpec =>
-            s"$s(${privateMemberName(IoIdentifier)})?"
           case vis: ValueInstanceSpec =>
             val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
             if (reRefOpt.findFirstIn(aType).isDefined)
-              unwrap(s"$s()")
+              unwrap(s"$s()?")
             else
               s"$s()?"
 
@@ -219,42 +217,24 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 proto = RustTranslator.getProto(nestedType, s).getOrElse("")
             }
 
-            if (reRefOpt.findFirstIn(proto).isDefined && !enum_numeric_only(as.dataTypeComposite))
-              unwrap(code)
-            else
-              code
-
-            /*
-            case pd: ParamDefSpec =>
-              val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
-              val refOpt = "^Option<.*".r
-              aType match {
-                case refOpt() => s"$s().as_ref().unwrap()"
-                case _ => s"$s()"
-              }
-            case pis: ParseInstanceSpec =>
-              //s"$s(${privateMemberName(IoIdentifier)})?"
-              val aType = RustCompiler.kaitaiTypeToNativeType(Some(pis.id), provider.nowClass, pis.dataTypeComposite)
-              val refOpt = "^Option<.*".r
-              aType match {
-                case refOpt() => s"$s(${privateMemberName(IoIdentifier)})?.as_ref().unwrap()"
-                case _ => s"$s(${privateMemberName(IoIdentifier)})?"
-              }
-
-             */
+            if (reRefOpt.findFirstIn(proto).isDefined) {
+              if (!enum_numeric_only(as.dataTypeComposite))
+                unwrap(code)
+              else
+                code
+            } else code
           case pd: ParamDefSpec =>
-            pd.dataType match {
-              case _: NumericType | _: BooleanType | _: EnumType | _: ArrayType => s"$s()"
-              case _: CalcUserType =>
-                val code = s"$s()"
-                val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
-                if (!aType.startsWith("Rc<"))
-                  unwrap(s"$code")
-                else
-                  code
-              case _ =>
-                unwrap(s"$s()")
-            }
+            val aType = RustCompiler.kaitaiTypeToNativeType(Some(pd.id), provider.nowClass, pd.dataTypeComposite)
+            if (reRefOpt.findFirstIn(aType).isDefined)
+              unwrap(s"$s()")
+            else
+              s"$s()"
+          case pis: ParseInstanceSpec =>
+            val aType = RustCompiler.kaitaiTypeToNativeType(Some(pis.id), provider.nowClass, pis.dataTypeComposite)
+            if (reRefOpt.findFirstIn(aType).isDefined)
+              unwrap(s"$s()?")
+            else
+              s"$s()?"
           case _ =>
             s"$s()"
         }
@@ -373,7 +353,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
         }
       case _ =>
     }
-    val a = doName(attrName) + addSuffix(attrName == Identifier.PARENT, unwrap(".get_value().borrow()"))
+    val a = doName(attrName) + addSuffix(attrName == Identifier.PARENT, unwrap(".get_value().borrow().upgrade()"))
     var r = ""
 
     if (need_deref(attrName)) {
@@ -468,7 +448,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       spec match {
         case _: AttrSpec | _: ParamDefSpec  =>
           deref = !enum_numeric_only(spec.dataTypeComposite)
-        case _: ValueInstanceSpec | _: ParseInstanceSpec | _: ParamDefSpec =>
+        case _: ValueInstanceSpec | _: ParseInstanceSpec =>
           deref = true
         case _ =>
       }
