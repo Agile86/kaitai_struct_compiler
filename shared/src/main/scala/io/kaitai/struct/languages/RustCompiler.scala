@@ -802,12 +802,12 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           ", None, None"
         } else {
           var parent = t.forcedParent match {
-            case Some(USER_TYPE_NO_PARENT) => "None"
+            case Some(USER_TYPE_NO_PARENT) => "Some(self_rc._parent.clone())"
             case Some(fp) => s"Some(SharedType::new(${translator.translate(fp)}.clone()))"
             case None => s"Some(${self_name()}._self.clone())"
           }
           t.classSpec.get.parentType match {
-            case CalcKaitaiStructType(_) => parent = "None"
+            case CalcKaitaiStructType(_) => parent = "Some(self_rc._parent.clone())"
             case _ =>
           }
           s", $root, $parent"
@@ -1353,7 +1353,7 @@ object RustCompiler
         if (excludeOptionWrapper) typeName else s"Option<$typeName>"
 
       case KaitaiStreamType => "BytesReader"
-      case CalcKaitaiStructType(_) => kstructUnitName
+      case CalcKaitaiStructType(_) => types2class(cs.name.init)//kstructUnitName
     }
 
   def kaitaiPrimitiveToNativeType(attrType: DataType): String = attrType match {
