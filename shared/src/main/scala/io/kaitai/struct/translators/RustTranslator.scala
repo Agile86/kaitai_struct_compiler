@@ -90,6 +90,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
             aType match {
               case refOpt() => unwrap(s"$f?")
+              case "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" => f
               case _ => s"$f?"
             }
           case as: AttrSpec =>
@@ -388,6 +389,26 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case _ =>
     }
     if (into) {
+      value match {
+        case call: Ast.expr.Attribute => {
+          if (call.attr.name == Identifier.PARENT) {
+            var parent = provider.nowClass.upClass.get
+
+            if (call.value.toString == "Name(identifier(_parent))") {
+              parent = parent.upClass.get
+            }
+
+            val dt_name = castTypeName.asInstanceOf[UserType].name.last
+            for (attr <- parent.seq) {
+              if (attr.dataType.asInstanceOf[UserType].name.last == dt_name) {
+                val field = attr.id.asInstanceOf[NamedIdentifier].name
+                val code = s"${translate(value)}.$field()"
+                return code
+              }
+            }
+          }
+        }
+      }
       s"Into::<$ct>::into(&${translate(value)})"
     } else {
       s"(${translate(value)} as $ct)"
