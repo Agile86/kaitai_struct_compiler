@@ -408,6 +408,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             }
           }
         }
+        case _ =>
       }
       s"Into::<$ct>::into(&${translate(value)})"
     } else {
