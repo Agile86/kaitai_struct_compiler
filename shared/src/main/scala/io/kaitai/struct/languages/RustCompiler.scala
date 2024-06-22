@@ -558,6 +558,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         handleAssignmentSimple(instName, s"${translator.rem_vec_amp(translator.remove_deref(expression(value)))}.to_vec()")
       case _: EnumType =>
         handleAssignmentSimple(instName, s"${translator.remove_deref(expression(value))}")
+      case _: KaitaiStreamType.type =>
+        handleAssignmentSimple(instName, s"${expression(value)}")
+      case _: CalcKaitaiStructType =>
+        handleAssignmentSimple(instName, s"${expression(value)}")
       case _ =>
         handleAssignmentSimple(instName, s"(${expression(value)}) as ${kaitaiPrimitiveToNativeType(dataType)}")
     }
@@ -1354,6 +1358,9 @@ object RustCompiler
 
       case KaitaiStreamType => "BytesReader"
       case CalcKaitaiStructType(_) => types2class(cs.name.init)//kstructUnitName
+
+      case unknown =>
+        throw new Exception(s"kaitaiTypeToNativeType: $unknown")
     }
 
   def kaitaiPrimitiveToNativeType(attrType: DataType): String = attrType match {
@@ -1380,5 +1387,9 @@ object RustCompiler
     case _: BytesType => "Vec<u8>"
 
     case ArrayTypeInStream(inType) => s"Vec<${kaitaiPrimitiveToNativeType(inType)}>"
+
+    case unknown =>
+      throw new Exception(s"kaitaiPrimitiveToNativeType: $unknown")
+
   }
 }
