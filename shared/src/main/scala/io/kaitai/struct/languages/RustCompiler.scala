@@ -380,6 +380,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
             s"BytesReader::process_xor_one(&$srcExpr, ${expression(xorValue)})"
           case _: BytesType =>
             s"BytesReader::process_xor_many(&$srcExpr, &${translator.remove_deref(expression(xorValue))})"
+          case unknown => throw new Exception(s"attrProcess: $unknown")
         }
       case ProcessZlib =>
         s"BytesReader::process_zlib(&$srcExpr)"
@@ -401,6 +402,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         val argListInParens = s"($argList)"
         out.puts(s"let $procName = $procClass::new$argListInParens;")
         s"$procName.decode(&$srcExpr)"
+      case unknown => throw new Exception(s"attrProcess: $unknown")
     }
     handleAssignment(varDest, expr, rep, isRaw = false)
   }
@@ -558,6 +560,10 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         handleAssignmentSimple(instName, s"${translator.rem_vec_amp(translator.remove_deref(expression(value)))}.to_vec()")
       case _: EnumType =>
         handleAssignmentSimple(instName, s"${translator.remove_deref(expression(value))}")
+      case _: KaitaiStreamType.type =>
+        handleAssignmentSimple(instName, s"${expression(value)}")
+      case _: CalcKaitaiStructType =>
+        handleAssignmentSimple(instName, s"${expression(value)}")
       case _ =>
         handleAssignmentSimple(instName, s"(${expression(value)}) as ${kaitaiPrimitiveToNativeType(dataType)}")
     }
@@ -833,7 +839,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           out.puts(s"let f = |t : &mut $userType| Ok(t.set_params($addParams));")
           out.puts(s"let t = Self::read_into_with_init::<$streamType, $userType>($io2$addArgs, &f)?.into();")
         }
-        return s"t"
+        s"t"
       case _ => s"// parseExpr($dataType, $assignType, $io, $defEndian)"
     }
   }
@@ -1154,7 +1160,6 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   def switchVariantName(id: Identifier, attrType: DataType): String =
     attrType match {
-      // TODO: Not exhaustive
       case Int1Type(false) => "U1"
       case IntMultiType(false, Width2, _) => "U2"
       case IntMultiType(false, Width4, _) => "U4"
@@ -1190,6 +1195,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           excludeOptionWrapper = true
         )
       case t: ArrayType => s"Arr${switchVariantName(id, t.elType)}"
+      case unknown => throw new Exception(s"switchVariantName: $unknown")
     }
 
   override def ksErrorName(err: KSError): String = err match {
@@ -1232,6 +1238,7 @@ class RustCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
               s"($io.read_${inst.apiCall(defEndian)}()? as i64).try_into()?"
             case BitsType(width: Int, bitEndian) =>
               s"($io.read_bits_int_${bitEndian.toSuffix}($width)? as i64).try_into()?"
+            case unknown => throw new Exception(s"attrParse2: $unknown")
           }
         handleAssignment(id, expr, rep, isRaw)
       case _ =>
@@ -1354,6 +1361,9 @@ object RustCompiler
 
       case KaitaiStreamType => "BytesReader"
       case CalcKaitaiStructType(_) => types2class(cs.name.init)//kstructUnitName
+
+      case unknown =>
+        throw new Exception(s"kaitaiTypeToNativeType: $unknown")
     }
 
   def kaitaiPrimitiveToNativeType(attrType: DataType): String = attrType match {
@@ -1380,5 +1390,8 @@ object RustCompiler
     case _: BytesType => "Vec<u8>"
 
     case ArrayTypeInStream(inType) => s"Vec<${kaitaiPrimitiveToNativeType(inType)}>"
+
+    case unknown =>
+      throw new Exception(s"kaitaiPrimitiveToNativeType: $unknown")
   }
 }

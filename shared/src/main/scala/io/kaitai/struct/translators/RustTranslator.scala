@@ -48,7 +48,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ => false
   }
 
-  def isAllDigits(x: String) = x forall Character.isDigit
+  def isAllDigits(x: String): Boolean = x forall Character.isDigit
 
   override def genericBinOp(left: Ast.expr,
                             op: Ast.operator,
@@ -129,6 +129,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       if (s.classSpec.isDefined) {
         lastFoundMemberClass = s.classSpec.get
       }
+      case _ =>
     }
   }
 
@@ -390,7 +391,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
     if (into) {
       value match {
-        case call: Ast.expr.Attribute => {
+        case call: Ast.expr.Attribute =>
           if (call.attr.name == Identifier.PARENT) {
             var parent = provider.nowClass.upClass.get
 
@@ -407,7 +408,6 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
               }
             }
           }
-        }
         case _ =>
       }
       s"Into::<$ct>::into(&${translate(value)})"
@@ -440,6 +440,18 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def strConcat(left: Ast.expr, right: Ast.expr, extPrec: Int): String =
     s"""format!("{}{}", ${translate(left)}, ${translate(right)})"""
+
+  override def doInterpolatedStringLiteral(exprs: Seq[Ast.expr]): String =
+    if (exprs.isEmpty) {
+      doStringLiteral("")
+    } else { // format!("{expr1}{expr2}{expr3}")
+      var s = "format!(\""
+      exprs.foreach(i => { s+= "{}" })
+      s += "\", "
+      s += exprs.map(translate).mkString(", ")
+      s += ")"
+      s
+    }
 
   override def strToInt(s: expr, base: expr): String =
     translate(base) match {
