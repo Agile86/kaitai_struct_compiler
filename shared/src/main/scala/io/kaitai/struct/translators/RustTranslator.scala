@@ -124,11 +124,11 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     }
 
   def updateLastFoundMemberClass(dt: DataType): Unit = {
-    if (dt.isInstanceOf[UserType]) {
-      val s = dt.asInstanceOf[UserType]
-      if (s.classSpec.isDefined) {
+    dt match {
+      case s: UserType =>       if (s.classSpec.isDefined) {
         lastFoundMemberClass = s.classSpec.get
       }
+      case _ =>
     }
   }
 
