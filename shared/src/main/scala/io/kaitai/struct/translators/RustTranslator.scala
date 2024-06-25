@@ -123,17 +123,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
     }
 
-  def updateLastFoundMemberClass(dt: DataType) {
+  def updateLastFoundMemberClass(dt: DataType): Unit = {
     if (dt.isInstanceOf[UserType]) {
       val s = dt.asInstanceOf[UserType]
       if (s.classSpec.isDefined) {
         lastFoundMemberClass = s.classSpec.get
       }
-      case _ =>
     }
   }
 
-  def resetLastFoundMemberClass() {
+  def resetLastFoundMemberClass(): Unit = {
     lastFoundMemberClass = provider.nowClass
   }
 
@@ -379,7 +378,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def doCast(value: Ast.expr, castTypeName: DataType): String = {
     val value_type = detectType(value)
-    if(castTypeName == value_type)
+    if (castTypeName == value_type)
       return translate(value)
 
     val ct = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, castTypeName, excludeOptionWrapper = true)
@@ -407,6 +406,18 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
                 return code
               }
             }
+          }
+        case name: Ast.expr.Name =>
+          if (name.id.name == Identifier.PARENT) {
+            val dt_name = castTypeName.asInstanceOf[UserType].name.last
+            if (provider.nowClass.isTopLevel) {
+              val now_class = provider.nowClass.name.last
+              if (dt_name != now_class) {
+                throw new Exception(s"Can not cast top level class '$now_class' as '$dt_name'")
+              }
+            }
+
+            return s"${translate(value)}"
           }
         case _ =>
       }
