@@ -1393,5 +1393,6 @@ object RustCompiler
 
     case unknown =>
       throw new Exception(s"kaitaiPrimitiveToNativeType: $unknown")
+
   }
 }
