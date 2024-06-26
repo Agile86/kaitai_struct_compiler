@@ -48,7 +48,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
     case _ => false
   }
 
-  def isAllDigits(x: String) = x forall Character.isDigit
+  def isAllDigits(x: String): Boolean = x forall Character.isDigit
 
   override def genericBinOp(left: Ast.expr,
                             op: Ast.operator,
@@ -90,6 +90,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
             val aType = RustCompiler.kaitaiTypeToNativeType(Some(vis.id), provider.nowClass, vis.dataTypeComposite)
             aType match {
               case refOpt() => unwrap(s"$f?")
+              case "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" => f
               case _ => s"$f?"
             }
           case as: AttrSpec =>
@@ -122,16 +123,16 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       }
     }
 
-  def updateLastFoundMemberClass(dt: DataType) {
-    if (dt.isInstanceOf[UserType]) {
-      val s = dt.asInstanceOf[UserType]
-      if (s.classSpec.isDefined) {
+  def updateLastFoundMemberClass(dt: DataType): Unit = {
+    dt match {
+      case s: UserType =>       if (s.classSpec.isDefined) {
         lastFoundMemberClass = s.classSpec.get
       }
+      case _ =>
     }
   }
 
-  def resetLastFoundMemberClass() {
+  def resetLastFoundMemberClass(): Unit = {
     lastFoundMemberClass = provider.nowClass
   }
 
@@ -377,7 +378,7 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
 
   override def doCast(value: Ast.expr, castTypeName: DataType): String = {
     val value_type = detectType(value)
-    if(castTypeName == value_type)
+    if (castTypeName == value_type)
       return translate(value)
 
     val ct = RustCompiler.kaitaiTypeToNativeType(None, provider.nowClass, castTypeName, excludeOptionWrapper = true)
@@ -388,6 +389,38 @@ class RustTranslator(provider: TypeProvider, config: RuntimeConfig)
       case _ =>
     }
     if (into) {
+      value match {
+        case call: Ast.expr.Attribute =>
+          if (call.attr.name == Identifier.PARENT) {
+            var parent = provider.nowClass.upClass.get
+
+            if (call.value.toString == "Name(identifier(_parent))") {
+              parent = parent.upClass.get
+            }
+
+            val dt_name = castTypeName.asInstanceOf[UserType].name.last
+            for (attr <- parent.seq) {
+              if (attr.dataType.asInstanceOf[UserType].name.last == dt_name) {
+                val field = attr.id.asInstanceOf[NamedIdentifier].name
+                val code = s"${translate(value)}.$field()"
+                return code
+              }
+            }
+          }
+        case name: Ast.expr.Name =>
+          if (name.id.name == Identifier.PARENT) {
+            val dt_name = castTypeName.asInstanceOf[UserType].name.last
+            if (provider.nowClass.isTopLevel) {
+              val now_class = provider.nowClass.name.last
+              if (dt_name != now_class) {
+                throw new Exception(s"Can not cast top level class '$now_class' as '$dt_name'")
+              }
+            }
+
+            return s"${translate(value)}"
+          }
+        case _ =>
+      }
       s"Into::<$ct>::into(&${translate(value)})"
     } else {
       s"(${translate(value)} as $ct)"
